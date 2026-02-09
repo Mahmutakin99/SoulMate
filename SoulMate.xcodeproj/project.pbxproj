@@ -6,6 +6,17 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		CA75FBF32F36425B00CE2D6D /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = CA75FBF22F36425B00CE2D6D /* FirebaseAuth */; };
+		CA75FBF52F36425B00CE2D6D /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = CA75FBF42F36425B00CE2D6D /* FirebaseCrashlytics */; };
+		CA75FBF72F36425B00CE2D6D /* FirebaseDatabase in Frameworks */ = {isa = PBXBuildFile; productRef = CA75FBF62F36425B00CE2D6D /* FirebaseDatabase */; };
+		CA75FBF92F36425B00CE2D6D /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = CA75FBF82F36425B00CE2D6D /* FirebaseMessaging */; };
+		CA75FBFB2F36425B00CE2D6D /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = CA75FBFA2F36425B00CE2D6D /* FirebaseStorage */; };
+		CA75FC012F364C5F00CE2D6D /* SDWebImage in Frameworks */ = {isa = PBXBuildFile; productRef = CA75FC002F364C5F00CE2D6D /* SDWebImage */; };
+		CA75FC032F364C5F00CE2D6D /* SDWebImageMapKit in Frameworks */ = {isa = PBXBuildFile; productRef = CA75FC022F364C5F00CE2D6D /* SDWebImageMapKit */; };
+		CA75FC062F364CFC00CE2D6D /* GiphyUISDK in Frameworks */ = {isa = PBXBuildFile; productRef = CA75FC052F364CFC00CE2D6D /* GiphyUISDK */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		CA75FB3D2F36364000CE2D6D /* SoulMate.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SoulMate.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -36,6 +47,14 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CA75FC012F364C5F00CE2D6D /* SDWebImage in Frameworks */,
+				CA75FBF92F36425B00CE2D6D /* FirebaseMessaging in Frameworks */,
+				CA75FBF72F36425B00CE2D6D /* FirebaseDatabase in Frameworks */,
+				CA75FC062F364CFC00CE2D6D /* GiphyUISDK in Frameworks */,
+				CA75FBF32F36425B00CE2D6D /* FirebaseAuth in Frameworks */,
+				CA75FBFB2F36425B00CE2D6D /* FirebaseStorage in Frameworks */,
+				CA75FC032F364C5F00CE2D6D /* SDWebImageMapKit in Frameworks */,
+				CA75FBF52F36425B00CE2D6D /* FirebaseCrashlytics in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -78,6 +97,14 @@
 			);
 			name = SoulMate;
 			packageProductDependencies = (
+				CA75FBF22F36425B00CE2D6D /* FirebaseAuth */,
+				CA75FBF42F36425B00CE2D6D /* FirebaseCrashlytics */,
+				CA75FBF62F36425B00CE2D6D /* FirebaseDatabase */,
+				CA75FBF82F36425B00CE2D6D /* FirebaseMessaging */,
+				CA75FBFA2F36425B00CE2D6D /* FirebaseStorage */,
+				CA75FC002F364C5F00CE2D6D /* SDWebImage */,
+				CA75FC022F364C5F00CE2D6D /* SDWebImageMapKit */,
+				CA75FC052F364CFC00CE2D6D /* GiphyUISDK */,
 			);
 			productName = SoulMate;
 			productReference = CA75FB3D2F36364000CE2D6D /* SoulMate.app */;
@@ -103,10 +130,16 @@
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
+				tr,
 				Base,
 			);
 			mainGroup = CA75FB342F36364000CE2D6D;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				CA75FBF12F36425B00CE2D6D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				CA75FBFF2F364C5F00CE2D6D /* XCRemoteSwiftPackageReference "SDWebImage" */,
+				CA75FC042F364CFC00CE2D6D /* XCRemoteSwiftPackageReference "giphy-ios-sdk" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CA75FB3E2F36364000CE2D6D /* Products */;
 			projectDirPath = "";
@@ -143,6 +176,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = SoulMate/SoulMate.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = BQH8W6X63R;
@@ -150,9 +184,7 @@
 				INFOPLIST_FILE = SoulMate/Info.plist;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
-				INFOPLIST_KEY_UIMainStoryboardFile = Main;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -161,12 +193,16 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.MahmutAKIN.SoulMate;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -175,6 +211,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = SoulMate/SoulMate.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = BQH8W6X63R;
@@ -182,9 +219,7 @@
 				INFOPLIST_FILE = SoulMate/Info.plist;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
-				INFOPLIST_KEY_UIMainStoryboardFile = Main;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -193,12 +228,16 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.MahmutAKIN.SoulMate;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -345,6 +384,76 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		CA75FBF12F36425B00CE2D6D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.9.0;
+			};
+		};
+		CA75FBFF2F364C5F00CE2D6D /* XCRemoteSwiftPackageReference "SDWebImage" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/SDWebImage/SDWebImage.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.21.6;
+			};
+		};
+		CA75FC042F364CFC00CE2D6D /* XCRemoteSwiftPackageReference "giphy-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Giphy/giphy-ios-sdk.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.3.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		CA75FBF22F36425B00CE2D6D /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CA75FBF12F36425B00CE2D6D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
+		CA75FBF42F36425B00CE2D6D /* FirebaseCrashlytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CA75FBF12F36425B00CE2D6D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCrashlytics;
+		};
+		CA75FBF62F36425B00CE2D6D /* FirebaseDatabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CA75FBF12F36425B00CE2D6D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseDatabase;
+		};
+		CA75FBF82F36425B00CE2D6D /* FirebaseMessaging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CA75FBF12F36425B00CE2D6D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseMessaging;
+		};
+		CA75FBFA2F36425B00CE2D6D /* FirebaseStorage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CA75FBF12F36425B00CE2D6D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseStorage;
+		};
+		CA75FC002F364C5F00CE2D6D /* SDWebImage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CA75FBFF2F364C5F00CE2D6D /* XCRemoteSwiftPackageReference "SDWebImage" */;
+			productName = SDWebImage;
+		};
+		CA75FC022F364C5F00CE2D6D /* SDWebImageMapKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CA75FBFF2F364C5F00CE2D6D /* XCRemoteSwiftPackageReference "SDWebImage" */;
+			productName = SDWebImageMapKit;
+		};
+		CA75FC052F364CFC00CE2D6D /* GiphyUISDK */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CA75FC042F364CFC00CE2D6D /* XCRemoteSwiftPackageReference "giphy-ios-sdk" */;
+			productName = GiphyUISDK;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = CA75FB352F36364000CE2D6D /* Project object */;
 }
