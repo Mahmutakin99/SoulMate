@@ -10,6 +10,7 @@
 		CA75FBF32F36425B00CE2D6D /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = CA75FBF22F36425B00CE2D6D /* FirebaseAuth */; };
 		CA75FBF52F36425B00CE2D6D /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = CA75FBF42F36425B00CE2D6D /* FirebaseCrashlytics */; };
 		CA75FBF72F36425B00CE2D6D /* FirebaseDatabase in Frameworks */ = {isa = PBXBuildFile; productRef = CA75FBF62F36425B00CE2D6D /* FirebaseDatabase */; };
+		CA75FBF82F365AAA00CE2D6D /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = CA75FBF72F365AAA00CE2D6D /* FirebaseFunctions */; };
 		CA75FBF92F36425B00CE2D6D /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = CA75FBF82F36425B00CE2D6D /* FirebaseMessaging */; };
 		CA75FBFB2F36425B00CE2D6D /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = CA75FBFA2F36425B00CE2D6D /* FirebaseStorage */; };
 		CA75FC012F364C5F00CE2D6D /* SDWebImage in Frameworks */ = {isa = PBXBuildFile; productRef = CA75FC002F364C5F00CE2D6D /* SDWebImage */; };
@@ -49,6 +50,7 @@
 			files = (
 				CA75FC012F364C5F00CE2D6D /* SDWebImage in Frameworks */,
 				CA75FBF92F36425B00CE2D6D /* FirebaseMessaging in Frameworks */,
+				CA75FBF82F365AAA00CE2D6D /* FirebaseFunctions in Frameworks */,
 				CA75FBF72F36425B00CE2D6D /* FirebaseDatabase in Frameworks */,
 				CA75FC062F364CFC00CE2D6D /* GiphyUISDK in Frameworks */,
 				CA75FBF32F36425B00CE2D6D /* FirebaseAuth in Frameworks */,
@@ -100,6 +102,7 @@
 				CA75FBF22F36425B00CE2D6D /* FirebaseAuth */,
 				CA75FBF42F36425B00CE2D6D /* FirebaseCrashlytics */,
 				CA75FBF62F36425B00CE2D6D /* FirebaseDatabase */,
+				CA75FBF72F365AAA00CE2D6D /* FirebaseFunctions */,
 				CA75FBF82F36425B00CE2D6D /* FirebaseMessaging */,
 				CA75FBFA2F36425B00CE2D6D /* FirebaseStorage */,
 				CA75FC002F364C5F00CE2D6D /* SDWebImage */,
@@ -182,9 +185,11 @@
 				DEVELOPMENT_TEAM = BQH8W6X63R;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SoulMate/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -217,9 +222,11 @@
 				DEVELOPMENT_TEAM = BQH8W6X63R;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SoulMate/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -427,6 +434,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CA75FBF12F36425B00CE2D6D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseDatabase;
+		};
+		CA75FBF72F365AAA00CE2D6D /* FirebaseFunctions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CA75FBF12F36425B00CE2D6D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFunctions;
 		};
 		CA75FBF82F36425B00CE2D6D /* FirebaseMessaging */ = {
 			isa = XCSwiftPackageProductDependency;

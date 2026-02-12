@@ -3,14 +3,26 @@ import UserNotifications
 #if canImport(GiphyUISDK)
 import GiphyUISDK
 #endif
+#if canImport(SDWebImage)
+import SDWebImage
+#endif
 
 @main
 final class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(
         _ application: UIApplication,
+        willFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        FirebaseManager.shared.configureCoreIfNeeded()
+        return true
+    }
+
+    func application(
+        _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         FirebaseManager.shared.configureCoreIfNeeded()
+        configureImageCaching()
         UNUserNotificationCenter.current().delegate = self
         #if canImport(GiphyUISDK)
         DispatchQueue.main.async {
@@ -44,6 +56,16 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
         completionHandler(.newData)
+    }
+
+    private func configureImageCaching() {
+        #if canImport(SDWebImage)
+        let cacheConfig = SDImageCache.shared.config
+        cacheConfig.maxMemoryCost = AppConfiguration.ImageCache.maxMemoryCostBytes
+        cacheConfig.maxDiskSize = AppConfiguration.ImageCache.maxDiskSizeBytes
+        cacheConfig.maxDiskAge = AppConfiguration.ImageCache.maxDiskAgeSeconds
+        cacheConfig.shouldUseWeakMemoryCache = true
+        #endif
     }
 }
 

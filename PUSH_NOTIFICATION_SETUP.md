@@ -65,6 +65,7 @@ Bu adım yapılmazsa push otomatik oluşmaz.
    - `firebase login`
 3. Proje kökünde Firebase proje ID seç:
    - `firebase use <firebase-project-id>`
+   - İstersen önce `.firebaserc.example` dosyasını `.firebaserc` olarak kopyalayıp project id yazabilirsin.
 4. Function bağımlılıklarını kur:
    - `cd firebase/functions`
    - `npm install`

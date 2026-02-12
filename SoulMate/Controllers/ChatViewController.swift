@@ -2,25 +2,24 @@ import UIKit
 #if canImport(GiphyUISDK)
 import GiphyUISDK
 #endif
+#if canImport(SDWebImage)
+import SDWebImage
+#endif
 
 final class ChatViewController: UIViewController {
     var onRequestPairingManagement: (() -> Void)?
     var onRequestSignOut: (() -> Void)?
+    var onRequirePairing: (() -> Void)?
+    private static let quickEmojiVisibilityPreferenceKey = "chat.quick_emoji_visible"
+    private static let revealedSecretMessagesPreferenceKey = "chat.revealed_secret_message_ids"
 
     private let viewModel: ChatViewModel
 
     private let gradientLayer = CAGradientLayer()
-
-    private let headerCard = UIView()
-    private let stateChip = InsetLabel()
-    private let pairCodeChip = InsetLabel()
-    private let partnerMoodChip = InsetLabel()
-    private let distanceChip = InsetLabel()
-
     private let moodTitleLabel = UILabel()
     private let moodScrollView = UIScrollView()
     private let moodStack = UIStackView()
-    private let moodSectionContainer = UIStackView()
+    private let moodSectionContainer = UIView()
     private var moodButtons: [UIButton] = []
     private var selectedMoodIndex: Int?
 
@@ -33,6 +32,12 @@ final class ChatViewController: UIViewController {
     private let emojiScrollView = UIScrollView()
     private let emojiStack = UIStackView()
     private var emojiButtons: [UIButton] = []
+    private var emojiContainerHeightConstraint: NSLayoutConstraint!
+    private var inputTopToEmojiConstraint: NSLayoutConstraint!
+    private var inputTopToTableConstraint: NSLayoutConstraint!
+    private var isQuickEmojiVisible = UserDefaults.standard.object(
+        forKey: ChatViewController.quickEmojiVisibilityPreferenceKey
+    ) as? Bool ?? true
 
     private let inputContainer = UIView()
     private let messageTextField = UITextField()
@@ -40,17 +45,51 @@ final class ChatViewController: UIViewController {
     private let secretLabel = UILabel()
     private let composerSendButton = UIButton(type: .system)
     private let gifButton = UIButton(type: .system)
+    private let emojiToggleButton = UIButton(type: .system)
     private let heartButton = UIButton(type: .system)
 
     private let heartbeatToast = UILabel()
+    private let detailsDimView = UIControl()
+    private let detailsDrawerView = UIView()
+    private let detailsTitleLabel = UILabel()
+    private let detailsStack = UIStackView()
+    private let secureInfoRow = UIView()
+    private let pairInfoRow = UIView()
+    private let distanceInfoRow = UIView()
+    private let partnerMoodInfoRow = UIView()
+    private let splashPreferenceRow = UIView()
+    private let secureStatusTitleLabel = UILabel()
+    private let secureStatusValueLabel = UILabel()
+    private let pairStatusTitleLabel = UILabel()
+    private let pairStatusValueLabel = UILabel()
+    private let distanceTitleLabel = UILabel()
+    private let distanceValueLabel = UILabel()
+    private let partnerMoodTitleLabel = UILabel()
+    private let partnerMoodValueLabel = UILabel()
+    private let splashPreferenceTitleLabel = UILabel()
+    private let splashPreferenceSwitch = UISwitch()
+    private var detailsDrawerTrailingConstraint: NSLayoutConstraint!
+    private let detailsDrawerWidth: CGFloat = 274
+    private var isDetailsDrawerOpen = false
 
     private var pendingErrorMessage: String?
     private var isVisible = false
     private let minimumGIFVisibleRatio: CGFloat = 0.65
 
     private var lastRenderedState: ChatViewModel.ScreenState = .idle
+    private var hasTriggeredPairingRedirect = false
     private var pairingStatusMessage: String?
+    private var latestDistanceDisplayValue = "--"
+    private var latestPartnerMoodValue = L10n.t("chat.sidebar.value.unknown")
     private var isKeyboardModeActive = false
+    private var revealedSecretMessageIDs = Set(
+        UserDefaults.standard.stringArray(forKey: ChatViewController.revealedSecretMessagesPreferenceKey) ?? []
+    )
+    private var memoryWarningObserver: NSObjectProtocol?
+    private var showsSplashOnLaunch = UserDefaults.standard.object(
+        forKey: AppConfiguration.UserPreferenceKey.showsSplashOnLaunch
+    ) as? Bool ?? true
+    private var needsDeferredMessageReload = false
 
     private var theme: ChatTheme!
     private lazy var dismissKeyboardTapGesture = UITapGestureRecognizer(target: self, action: #selector(handleBackgroundTap))
@@ -64,6 +103,12 @@ final class ChatViewController: UIViewController {
         fatalError("init(coder:) has not been implemented")
     }
 
+    deinit {
+        if let memoryWarningObserver {
+            NotificationCenter.default.removeObserver(memoryWarningObserver)
+        }
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         theme = ChatTheme.current(for: traitCollection)
@@ -72,6 +117,7 @@ final class ChatViewController: UIViewController {
         setupBackground()
         setupUI()
         configureKeyboardDismissal()
+        configureMemoryWarningObserver()
         registerForThemeChanges()
         bindViewModel()
         applyTheme()
@@ -84,6 +130,14 @@ final class ChatViewController: UIViewController {
         isVisible = true
         updateVisibleGIFPlayback(isEnabled: true)
 
+        if needsDeferredMessageReload {
+            needsDeferredMessageReload = false
+            tableView.reloadData()
+            updateEmptyStateVisibility()
+            scrollToBottom(animated: false)
+            updateVisibleGIFPlayback(isEnabled: !(tableView.isDragging || tableView.isDecelerating))
+        }
+
         if let pendingErrorMessage {
             self.pendingErrorMessage = nil
             presentError(pendingErrorMessage)
@@ -94,6 +148,7 @@ final class ChatViewController: UIViewController {
         super.viewWillDisappear(animated)
         isVisible = false
         updateVisibleGIFPlayback(isEnabled: false)
+        setDetailsDrawerVisibility(false, animated: false)
     }
 
     override func viewDidLayoutSubviews() {
@@ -131,11 +186,18 @@ final class ChatViewController: UIViewController {
         }
 
         let menu = UIMenu(title: "", children: [pairingAction, signOutAction])
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
+        let accountItem = UIBarButtonItem(
             image: UIImage(systemName: "person.crop.circle"),
             primaryAction: nil,
             menu: menu
         )
+        let detailsItem = UIBarButtonItem(
+            image: UIImage(systemName: "sidebar.right"),
+            style: .plain,
+            target: self,
+            action: #selector(detailsButtonTapped)
+        )
+        navigationItem.rightBarButtonItems = [accountItem, detailsItem]
     }
 
     private func setupBackground() {
@@ -146,80 +208,12 @@ final class ChatViewController: UIViewController {
     }
 
     private func setupUI() {
-        setupHeaderCard()
         setupTableSection()
         setupEmojiSection()
         setupInputSection()
         setupHeartbeatToast()
+        setupDetailsSidebar()
         layoutMainSections()
-    }
-
-    private func setupHeaderCard() {
-        headerCard.layer.cornerRadius = 24
-        headerCard.layer.cornerCurve = .continuous
-        headerCard.layer.shadowOpacity = 0.12
-        headerCard.layer.shadowRadius = 18
-        headerCard.layer.shadowOffset = CGSize(width: 0, height: 8)
-        headerCard.translatesAutoresizingMaskIntoConstraints = false
-
-        configureChip(stateChip, text: L10n.t("chat.chip.state.secure_waiting"), icon: "🔐")
-        configureChip(pairCodeChip, text: L10n.t("chat.chip.pair_code.default"), icon: "#")
-        configureChip(partnerMoodChip, text: L10n.t("chat.chip.partner_mood.default"), icon: "🙂")
-        configureChip(distanceChip, text: L10n.t("chat.chip.distance.default"), icon: "📍")
-
-        moodTitleLabel.text = L10n.t("chat.section.share_mood")
-        moodTitleLabel.font = UIFont(name: "AvenirNext-DemiBold", size: 14) ?? .systemFont(ofSize: 14, weight: .semibold)
-
-        moodScrollView.showsHorizontalScrollIndicator = false
-        moodScrollView.translatesAutoresizingMaskIntoConstraints = false
-
-        moodStack.axis = .horizontal
-        moodStack.alignment = .fill
-        moodStack.spacing = 8
-        moodStack.translatesAutoresizingMaskIntoConstraints = false
-
-        moodScrollView.addSubview(moodStack)
-        setupMoodButtons()
-
-        let topInfoRow = UIStackView(arrangedSubviews: [stateChip, pairCodeChip])
-        topInfoRow.axis = .horizontal
-        topInfoRow.alignment = .center
-        topInfoRow.distribution = .fillProportionally
-        topInfoRow.spacing = 8
-
-        let statusRow = UIStackView(arrangedSubviews: [partnerMoodChip, distanceChip])
-        statusRow.axis = .horizontal
-        statusRow.alignment = .center
-        statusRow.distribution = .fillProportionally
-        statusRow.spacing = 8
-
-        moodSectionContainer.axis = .vertical
-        moodSectionContainer.spacing = 8
-        moodSectionContainer.addArrangedSubview(moodTitleLabel)
-        moodSectionContainer.addArrangedSubview(moodScrollView)
-
-        let cardStack = UIStackView(arrangedSubviews: [topInfoRow, statusRow, moodSectionContainer])
-        cardStack.axis = .vertical
-        cardStack.spacing = 10
-        cardStack.translatesAutoresizingMaskIntoConstraints = false
-
-        headerCard.addSubview(cardStack)
-        view.addSubview(headerCard)
-
-        NSLayoutConstraint.activate([
-            moodScrollView.heightAnchor.constraint(equalToConstant: 34),
-
-            moodStack.topAnchor.constraint(equalTo: moodScrollView.topAnchor),
-            moodStack.bottomAnchor.constraint(equalTo: moodScrollView.bottomAnchor),
-            moodStack.leadingAnchor.constraint(equalTo: moodScrollView.leadingAnchor),
-            moodStack.trailingAnchor.constraint(equalTo: moodScrollView.trailingAnchor),
-            moodStack.heightAnchor.constraint(equalTo: moodScrollView.heightAnchor),
-
-            cardStack.topAnchor.constraint(equalTo: headerCard.topAnchor, constant: 14),
-            cardStack.bottomAnchor.constraint(equalTo: headerCard.bottomAnchor, constant: -14),
-            cardStack.leadingAnchor.constraint(equalTo: headerCard.leadingAnchor, constant: 14),
-            cardStack.trailingAnchor.constraint(equalTo: headerCard.trailingAnchor, constant: -14)
-        ])
     }
 
     private func setupTableSection() {
@@ -281,7 +275,7 @@ final class ChatViewController: UIViewController {
         emojiContainer.addSubview(emojiScrollView)
         view.addSubview(emojiContainer)
 
-        ["❤️", "🥰", "😘", "🔥", "🤍", "🫶", "😴", "💌"].forEach { emoji in
+        ["🥰", "😘", "😍", "❤️", "🤍", "🔥", "🫶", "😂", "😅", "🤣"].forEach { emoji in
             let button = UIButton(type: .system)
 
             var configuration = UIButton.Configuration.plain()
@@ -302,16 +296,14 @@ final class ChatViewController: UIViewController {
         }
 
         NSLayoutConstraint.activate([
-            emojiScrollView.topAnchor.constraint(equalTo: emojiContainer.topAnchor, constant: 8),
-            emojiScrollView.bottomAnchor.constraint(equalTo: emojiContainer.bottomAnchor, constant: -8),
+            emojiScrollView.topAnchor.constraint(equalTo: emojiContainer.topAnchor),
+            emojiScrollView.bottomAnchor.constraint(equalTo: emojiContainer.bottomAnchor),
             emojiScrollView.leadingAnchor.constraint(equalTo: emojiContainer.leadingAnchor, constant: 10),
             emojiScrollView.trailingAnchor.constraint(equalTo: emojiContainer.trailingAnchor, constant: -10),
 
-            emojiStack.topAnchor.constraint(equalTo: emojiScrollView.topAnchor),
-            emojiStack.bottomAnchor.constraint(equalTo: emojiScrollView.bottomAnchor),
-            emojiStack.leadingAnchor.constraint(equalTo: emojiScrollView.leadingAnchor),
-            emojiStack.trailingAnchor.constraint(equalTo: emojiScrollView.trailingAnchor),
-            emojiStack.heightAnchor.constraint(equalTo: emojiScrollView.heightAnchor)
+            emojiStack.leadingAnchor.constraint(equalTo: emojiScrollView.contentLayoutGuide.leadingAnchor),
+            emojiStack.trailingAnchor.constraint(equalTo: emojiScrollView.contentLayoutGuide.trailingAnchor),
+            emojiStack.centerYAnchor.constraint(equalTo: emojiScrollView.frameLayoutGuide.centerYAnchor)
         ])
     }
 
@@ -344,6 +336,7 @@ final class ChatViewController: UIViewController {
         composerSendButton.addTarget(self, action: #selector(sendButtonTapped), for: .touchUpInside)
 
         gifButton.addTarget(self, action: #selector(gifButtonTapped), for: .touchUpInside)
+        emojiToggleButton.addTarget(self, action: #selector(emojiToggleTapped), for: .touchUpInside)
 
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(heartLongPress(_:)))
         heartButton.addGestureRecognizer(longPress)
@@ -354,7 +347,7 @@ final class ChatViewController: UIViewController {
         composerRow.spacing = 8
         composerRow.translatesAutoresizingMaskIntoConstraints = false
 
-        let controlsRow = UIStackView(arrangedSubviews: [secretLabel, secretSwitch, gifButton, heartButton])
+        let controlsRow = UIStackView(arrangedSubviews: [secretLabel, secretSwitch, gifButton, emojiToggleButton, heartButton])
         controlsRow.axis = .horizontal
         controlsRow.alignment = .center
         controlsRow.spacing = 10
@@ -399,26 +392,120 @@ final class ChatViewController: UIViewController {
         ])
     }
 
-    private func layoutMainSections() {
-        NSLayoutConstraint.activate([
-            headerCard.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-            headerCard.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 14),
-            headerCard.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -14),
+    private func setupDetailsSidebar() {
+        detailsDimView.alpha = 0
+        detailsDimView.isHidden = true
+        detailsDimView.addTarget(self, action: #selector(closeDetailsDrawer), for: .touchUpInside)
+        detailsDimView.translatesAutoresizingMaskIntoConstraints = false
 
-            tableContainer.topAnchor.constraint(equalTo: headerCard.bottomAnchor, constant: 12),
+        detailsDrawerView.layer.cornerRadius = 20
+        detailsDrawerView.layer.cornerCurve = .continuous
+        detailsDrawerView.translatesAutoresizingMaskIntoConstraints = false
+
+        detailsTitleLabel.text = L10n.t("chat.sidebar.title")
+        detailsTitleLabel.font = UIFont(name: "AvenirNext-Bold", size: 16) ?? .systemFont(ofSize: 16, weight: .bold)
+        detailsTitleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        detailsStack.axis = .vertical
+        detailsStack.spacing = 10
+        detailsStack.translatesAutoresizingMaskIntoConstraints = false
+
+        setupDetailsRow(
+            container: secureInfoRow,
+            titleLabel: secureStatusTitleLabel,
+            valueLabel: secureStatusValueLabel,
+            titleKey: "chat.sidebar.item.secure_channel"
+        )
+        setupDetailsRow(
+            container: pairInfoRow,
+            titleLabel: pairStatusTitleLabel,
+            valueLabel: pairStatusValueLabel,
+            titleKey: "chat.sidebar.item.pair_status"
+        )
+        setupDetailsRow(
+            container: distanceInfoRow,
+            titleLabel: distanceTitleLabel,
+            valueLabel: distanceValueLabel,
+            titleKey: "chat.sidebar.item.distance"
+        )
+        setupDetailsRow(
+            container: partnerMoodInfoRow,
+            titleLabel: partnerMoodTitleLabel,
+            valueLabel: partnerMoodValueLabel,
+            titleKey: "chat.sidebar.item.partner_mood"
+        )
+        setupSplashPreferenceRow()
+        setupMoodSectionForSidebar()
+
+        detailsStack.addArrangedSubview(secureInfoRow)
+        detailsStack.addArrangedSubview(pairInfoRow)
+        detailsStack.addArrangedSubview(distanceInfoRow)
+        detailsStack.addArrangedSubview(partnerMoodInfoRow)
+        detailsStack.addArrangedSubview(splashPreferenceRow)
+        detailsStack.addArrangedSubview(moodSectionContainer)
+
+        secureStatusValueLabel.text = L10n.t("chat.sidebar.value.inactive")
+        pairStatusValueLabel.text = L10n.t("chat.sidebar.value.unpaired")
+        distanceValueLabel.text = latestDistanceDisplayValue
+        partnerMoodValueLabel.text = latestPartnerMoodValue
+
+        detailsDrawerView.addSubview(detailsTitleLabel)
+        detailsDrawerView.addSubview(detailsStack)
+        view.addSubview(detailsDimView)
+        view.addSubview(detailsDrawerView)
+
+        detailsDrawerTrailingConstraint = detailsDrawerView.trailingAnchor.constraint(
+            equalTo: view.trailingAnchor,
+            constant: detailsDrawerWidth + 20
+        )
+
+        NSLayoutConstraint.activate([
+            detailsDimView.topAnchor.constraint(equalTo: view.topAnchor),
+            detailsDimView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            detailsDimView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            detailsDimView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+
+            detailsDrawerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
+            detailsDrawerView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -10),
+            detailsDrawerView.widthAnchor.constraint(equalToConstant: detailsDrawerWidth),
+            detailsDrawerTrailingConstraint,
+
+            detailsTitleLabel.topAnchor.constraint(equalTo: detailsDrawerView.topAnchor, constant: 14),
+            detailsTitleLabel.leadingAnchor.constraint(equalTo: detailsDrawerView.leadingAnchor, constant: 14),
+            detailsTitleLabel.trailingAnchor.constraint(equalTo: detailsDrawerView.trailingAnchor, constant: -14),
+
+            detailsStack.topAnchor.constraint(equalTo: detailsTitleLabel.bottomAnchor, constant: 12),
+            detailsStack.leadingAnchor.constraint(equalTo: detailsDrawerView.leadingAnchor, constant: 12),
+            detailsStack.trailingAnchor.constraint(equalTo: detailsDrawerView.trailingAnchor, constant: -12),
+            detailsStack.bottomAnchor.constraint(lessThanOrEqualTo: detailsDrawerView.bottomAnchor, constant: -12)
+        ])
+    }
+
+    private func layoutMainSections() {
+        emojiContainerHeightConstraint = emojiContainer.heightAnchor.constraint(equalToConstant: 52)
+        inputTopToEmojiConstraint = inputContainer.topAnchor.constraint(equalTo: emojiContainer.bottomAnchor, constant: 8)
+        inputTopToTableConstraint = inputContainer.topAnchor.constraint(equalTo: tableContainer.bottomAnchor, constant: 8)
+
+        NSLayoutConstraint.activate([
+            tableContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
             tableContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             tableContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
 
             emojiContainer.topAnchor.constraint(equalTo: tableContainer.bottomAnchor, constant: 10),
             emojiContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             emojiContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            emojiContainer.heightAnchor.constraint(equalToConstant: 52),
+            emojiContainerHeightConstraint,
 
-            inputContainer.topAnchor.constraint(equalTo: emojiContainer.bottomAnchor, constant: 8),
             inputContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             inputContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
             inputContainer.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -8)
         ])
+
+        inputTopToEmojiConstraint.isActive = isQuickEmojiVisible
+        inputTopToTableConstraint.isActive = !isQuickEmojiVisible
+        emojiContainerHeightConstraint.constant = isQuickEmojiVisible ? 52 : 0
+        emojiContainer.isHidden = !isQuickEmojiVisible
+        emojiContainer.alpha = isQuickEmojiVisible ? 1 : 0
     }
 
     private func bindViewModel() {
@@ -426,21 +513,34 @@ final class ChatViewController: UIViewController {
             self?.render(state: state)
         }
 
+        viewModel.onPairingInvalidated = { [weak self] in
+            guard let self else { return }
+            guard self.viewIfLoaded?.window != nil else { return }
+            guard !self.hasTriggeredPairingRedirect else { return }
+            self.hasTriggeredPairingRedirect = true
+            self.onRequirePairing?()
+        }
+
         viewModel.onMessagesUpdated = { [weak self] in
-            self?.tableView.reloadData()
-            self?.updateEmptyStateVisibility()
-            self?.scrollToBottom(animated: true)
-            if let tableView = self?.tableView {
-                self?.updateVisibleGIFPlayback(isEnabled: !(tableView.isDragging || tableView.isDecelerating))
+            guard let self else { return }
+            guard self.isViewLoaded, self.view.window != nil else {
+                self.needsDeferredMessageReload = true
+                return
             }
+
+            self.tableView.reloadData()
+            self.updateEmptyStateVisibility()
+            self.scrollToBottom(animated: true)
+            self.updateVisibleGIFPlayback(isEnabled: !(self.tableView.isDragging || self.tableView.isDecelerating))
         }
 
         viewModel.onMessagesPrepended = { [weak self] _ in
-            self?.prependMessagesAndPreservePosition()
-        }
-
-        viewModel.onPairingCodeUpdated = { [weak self] code in
-            self?.pairCodeChip.text = L10n.f("chat.chip.pair_code.format", code)
+            guard let self else { return }
+            guard self.isViewLoaded, self.view.window != nil else {
+                self.needsDeferredMessageReload = true
+                return
+            }
+            self.prependMessagesAndPreservePosition()
         }
 
         viewModel.onPairingStatusUpdated = { [weak self] message in
@@ -450,11 +550,14 @@ final class ChatViewController: UIViewController {
         }
 
         viewModel.onPartnerMoodUpdated = { [weak self] mood in
-            self?.partnerMoodChip.text = L10n.f("chat.chip.partner_mood.format", mood?.title ?? L10n.t("mood.unknown"))
+            self?.latestPartnerMoodValue = mood?.title ?? L10n.t("chat.sidebar.value.unknown")
+            self?.partnerMoodValueLabel.text = self?.latestPartnerMoodValue
         }
 
         viewModel.onDistanceUpdated = { [weak self] distance in
-            self?.distanceChip.text = L10n.f("chat.chip.distance.format", distance ?? "--")
+            let displayValue = distance?.trimmingCharacters(in: .whitespacesAndNewlines)
+            self?.latestDistanceDisplayValue = (displayValue?.isEmpty == false) ? displayValue! : "--"
+            self?.distanceValueLabel.text = self?.latestDistanceDisplayValue
         }
 
         viewModel.onHeartbeatReceived = { [weak self] in
@@ -467,34 +570,25 @@ final class ChatViewController: UIViewController {
     }
 
     private func render(state: ChatViewModel.ScreenState) {
+        let previousState = lastRenderedState
         lastRenderedState = state
 
         switch state {
         case .idle:
-            stateChip.text = L10n.t("chat.state.idle.title")
-            stateChip.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.2)
             emptyStateLabel.text = L10n.t("chat.state.idle.empty")
 
         case .loading:
-            stateChip.text = L10n.t("chat.state.loading.title")
-            stateChip.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.2)
             emptyStateLabel.text = L10n.t("chat.state.loading.empty")
 
         case .unpaired:
-            stateChip.text = L10n.t("chat.state.unpaired.title")
-            stateChip.backgroundColor = UIColor.systemYellow.withAlphaComponent(0.22)
             emptyStateLabel.text = pairingStatusMessage ?? L10n.t("chat.state.unpaired.empty")
 
         case .waitingForMutualPairing:
             let waitingText = pairingStatusMessage ?? L10n.t("chat.state.waiting.fallback")
-            stateChip.text = L10n.f("chat.state.waiting.title_format", waitingText)
-            stateChip.backgroundColor = UIColor.systemTeal.withAlphaComponent(0.22)
             emptyStateLabel.text = waitingText
 
         case .ready:
             pairingStatusMessage = L10n.t("chat.state.ready.paired_status")
-            stateChip.text = L10n.t("chat.state.ready.title")
-            stateChip.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.22)
             emptyStateLabel.text = L10n.t("chat.state.ready.empty")
         }
 
@@ -509,11 +603,20 @@ final class ChatViewController: UIViewController {
         messageTextField.alpha = interactionAlpha
         composerSendButton.alpha = interactionAlpha
         gifButton.alpha = interactionAlpha
+        emojiToggleButton.alpha = interactionAlpha
         heartButton.alpha = interactionAlpha
         secretSwitch.alpha = interactionAlpha
-        emojiContainer.alpha = interactionAlpha
+        emojiContainer.alpha = isQuickEmojiVisible ? interactionAlpha : 0
 
+        updateDetailsSidebarValues(for: state)
         updateEmptyStateVisibility()
+
+        if ready {
+            hasTriggeredPairingRedirect = false
+        } else if previousState == .ready && state == .unpaired && !hasTriggeredPairingRedirect {
+            hasTriggeredPairingRedirect = true
+            onRequirePairing?()
+        }
     }
 
     private func updateEmptyStateVisibility() {
@@ -538,6 +641,211 @@ final class ChatViewController: UIViewController {
             button.addTarget(self, action: #selector(moodButtonTapped(_:)), for: .touchUpInside)
             moodButtons.append(button)
             moodStack.addArrangedSubview(button)
+        }
+    }
+
+    private func setupMoodSectionForSidebar() {
+        moodSectionContainer.translatesAutoresizingMaskIntoConstraints = false
+        moodSectionContainer.setContentCompressionResistancePriority(.required, for: .vertical)
+        moodSectionContainer.setContentHuggingPriority(.required, for: .vertical)
+
+        moodTitleLabel.text = L10n.t("chat.section.share_mood")
+        moodTitleLabel.font = UIFont(name: "AvenirNext-DemiBold", size: 14) ?? .systemFont(ofSize: 14, weight: .semibold)
+        moodTitleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        moodScrollView.showsHorizontalScrollIndicator = false
+        moodScrollView.translatesAutoresizingMaskIntoConstraints = false
+
+        moodStack.axis = .horizontal
+        moodStack.alignment = .fill
+        moodStack.spacing = 8
+        moodStack.translatesAutoresizingMaskIntoConstraints = false
+
+        if moodButtons.isEmpty {
+            setupMoodButtons()
+        }
+
+        moodScrollView.addSubview(moodStack)
+        moodSectionContainer.addSubview(moodTitleLabel)
+        moodSectionContainer.addSubview(moodScrollView)
+
+        let moodTitleTopConstraint = moodTitleLabel.topAnchor.constraint(equalTo: moodSectionContainer.topAnchor, constant: 6)
+        moodTitleTopConstraint.priority = .defaultHigh
+        let moodScrollTopConstraint = moodScrollView.topAnchor.constraint(equalTo: moodTitleLabel.bottomAnchor, constant: 8)
+        moodScrollTopConstraint.priority = .defaultHigh
+        let moodScrollHeightConstraint = moodScrollView.heightAnchor.constraint(equalToConstant: 34)
+        moodScrollHeightConstraint.priority = .defaultHigh
+        let moodScrollBottomConstraint = moodScrollView.bottomAnchor.constraint(equalTo: moodSectionContainer.bottomAnchor, constant: -4)
+        moodScrollBottomConstraint.priority = .defaultHigh
+
+        NSLayoutConstraint.activate([
+            moodTitleTopConstraint,
+            moodTitleLabel.leadingAnchor.constraint(equalTo: moodSectionContainer.leadingAnchor, constant: 2),
+            moodTitleLabel.trailingAnchor.constraint(equalTo: moodSectionContainer.trailingAnchor, constant: -2),
+
+            moodScrollTopConstraint,
+            moodScrollView.leadingAnchor.constraint(equalTo: moodSectionContainer.leadingAnchor),
+            moodScrollView.trailingAnchor.constraint(equalTo: moodSectionContainer.trailingAnchor),
+            moodScrollHeightConstraint,
+            moodScrollBottomConstraint,
+
+            moodStack.topAnchor.constraint(equalTo: moodScrollView.contentLayoutGuide.topAnchor),
+            moodStack.bottomAnchor.constraint(equalTo: moodScrollView.contentLayoutGuide.bottomAnchor),
+            moodStack.leadingAnchor.constraint(equalTo: moodScrollView.contentLayoutGuide.leadingAnchor),
+            moodStack.trailingAnchor.constraint(equalTo: moodScrollView.contentLayoutGuide.trailingAnchor),
+            moodStack.heightAnchor.constraint(equalTo: moodScrollView.frameLayoutGuide.heightAnchor)
+        ])
+    }
+
+    private func setupDetailsRow(
+        container: UIView,
+        titleLabel: UILabel,
+        valueLabel: UILabel,
+        titleKey: String
+    ) {
+        container.layer.cornerRadius = 12
+        container.layer.cornerCurve = .continuous
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        titleLabel.text = L10n.t(titleKey)
+        titleLabel.font = UIFont(name: "AvenirNext-Medium", size: 13) ?? .systemFont(ofSize: 13, weight: .medium)
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        valueLabel.font = UIFont(name: "AvenirNext-DemiBold", size: 14) ?? .systemFont(ofSize: 14, weight: .semibold)
+        valueLabel.textAlignment = .right
+        valueLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let rowStack = UIStackView(arrangedSubviews: [titleLabel, valueLabel])
+        rowStack.axis = .horizontal
+        rowStack.alignment = .center
+        rowStack.spacing = 8
+        rowStack.translatesAutoresizingMaskIntoConstraints = false
+
+        container.addSubview(rowStack)
+
+        NSLayoutConstraint.activate([
+            rowStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 10),
+            rowStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -10),
+            rowStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            rowStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12)
+        ])
+    }
+
+    private func setupSplashPreferenceRow() {
+        splashPreferenceRow.layer.cornerRadius = 12
+        splashPreferenceRow.layer.cornerCurve = .continuous
+        splashPreferenceRow.translatesAutoresizingMaskIntoConstraints = false
+
+        splashPreferenceTitleLabel.text = L10n.t("chat.sidebar.item.splash_screen")
+        splashPreferenceTitleLabel.font = UIFont(name: "AvenirNext-Medium", size: 13) ?? .systemFont(ofSize: 13, weight: .medium)
+        splashPreferenceTitleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        splashPreferenceSwitch.isOn = showsSplashOnLaunch
+        splashPreferenceSwitch.addTarget(self, action: #selector(splashPreferenceChanged(_:)), for: .valueChanged)
+        splashPreferenceSwitch.translatesAutoresizingMaskIntoConstraints = false
+
+        let rowStack = UIStackView(arrangedSubviews: [splashPreferenceTitleLabel, splashPreferenceSwitch])
+        rowStack.axis = .horizontal
+        rowStack.alignment = .center
+        rowStack.spacing = 8
+        rowStack.translatesAutoresizingMaskIntoConstraints = false
+
+        splashPreferenceRow.addSubview(rowStack)
+
+        NSLayoutConstraint.activate([
+            rowStack.topAnchor.constraint(equalTo: splashPreferenceRow.topAnchor, constant: 10),
+            rowStack.bottomAnchor.constraint(equalTo: splashPreferenceRow.bottomAnchor, constant: -10),
+            rowStack.leadingAnchor.constraint(equalTo: splashPreferenceRow.leadingAnchor, constant: 12),
+            rowStack.trailingAnchor.constraint(equalTo: splashPreferenceRow.trailingAnchor, constant: -12)
+        ])
+    }
+
+    private func updateDetailsSidebarValues(for state: ChatViewModel.ScreenState) {
+        let isSecureReady = state == .ready
+        secureStatusValueLabel.text = isSecureReady
+            ? L10n.t("chat.sidebar.value.active")
+            : L10n.t("chat.sidebar.value.inactive")
+        secureInfoRow.backgroundColor = isSecureReady
+            ? UIColor.systemGreen.withAlphaComponent(0.28)
+            : UIColor.systemRed.withAlphaComponent(0.28)
+
+        switch state {
+        case .ready:
+            pairStatusValueLabel.text = L10n.t("chat.sidebar.value.paired")
+        case .waitingForMutualPairing, .loading:
+            pairStatusValueLabel.text = pairingStatusMessage ?? L10n.t("chat.sidebar.value.waiting")
+        case .idle, .unpaired:
+            pairStatusValueLabel.text = L10n.t("chat.sidebar.value.unpaired")
+        }
+
+        distanceValueLabel.text = latestDistanceDisplayValue
+        partnerMoodValueLabel.text = latestPartnerMoodValue
+    }
+
+    private func setQuickEmojiVisibility(_ isVisible: Bool, animated: Bool) {
+        guard isQuickEmojiVisible != isVisible else { return }
+        isQuickEmojiVisible = isVisible
+        UserDefaults.standard.set(isVisible, forKey: Self.quickEmojiVisibilityPreferenceKey)
+        let interactionAlpha: CGFloat = lastRenderedState == .ready ? 1.0 : 0.62
+
+        if isVisible {
+            emojiContainer.isHidden = false
+            inputTopToTableConstraint.isActive = false
+            inputTopToEmojiConstraint.isActive = true
+            emojiContainerHeightConstraint.constant = 52
+        } else {
+            inputTopToEmojiConstraint.isActive = false
+            inputTopToTableConstraint.isActive = true
+            emojiContainerHeightConstraint.constant = 0
+        }
+
+        let updateLayout = {
+            self.emojiContainer.alpha = isVisible ? interactionAlpha : 0
+            self.view.layoutIfNeeded()
+        }
+
+        let completion: (Bool) -> Void = { _ in
+            if !isVisible {
+                self.emojiContainer.isHidden = true
+            }
+            self.configureEmojiToggleButton()
+        }
+
+        if animated {
+            UIView.animate(withDuration: 0.23, delay: 0, options: [.curveEaseInOut], animations: updateLayout, completion: completion)
+        } else {
+            updateLayout()
+            completion(true)
+        }
+    }
+
+    private func setDetailsDrawerVisibility(_ isOpen: Bool, animated: Bool) {
+        guard isDetailsDrawerOpen != isOpen else { return }
+        isDetailsDrawerOpen = isOpen
+
+        if isOpen {
+            detailsDimView.isHidden = false
+            view.bringSubviewToFront(detailsDimView)
+            view.bringSubviewToFront(detailsDrawerView)
+        }
+
+        let updates = {
+            self.detailsDimView.alpha = isOpen ? 1 : 0
+            self.detailsDrawerTrailingConstraint.constant = isOpen ? -12 : self.detailsDrawerWidth + 20
+            self.view.layoutIfNeeded()
+        }
+
+        let completion: (Bool) -> Void = { _ in
+            if !isOpen {
+                self.detailsDimView.isHidden = true
+            }
+        }
+
+        if animated {
+            UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseInOut], animations: updates, completion: completion)
+        } else {
+            updates()
+            completion(true)
         }
     }
 
@@ -571,14 +879,6 @@ final class ChatViewController: UIViewController {
         navigationController?.navigationBar.scrollEdgeAppearance = appearance
         navigationController?.navigationBar.tintColor = theme.accent
 
-        headerCard.backgroundColor = theme.cardBackground
-        headerCard.layer.shadowColor = theme.cardShadow.cgColor
-
-        [stateChip, pairCodeChip, partnerMoodChip, distanceChip].forEach {
-            $0.textColor = theme.chipText
-            $0.backgroundColor = theme.chipBackground
-        }
-
         moodTitleLabel.textColor = theme.textSecondary
 
         tableContainer.backgroundColor = theme.tableBackground
@@ -611,10 +911,26 @@ final class ChatViewController: UIViewController {
         configureComposerSendButton()
 
         configureActionButton(gifButton, title: L10n.t("chat.button.gif"), filled: false, color: theme.secondaryAction)
+        configureEmojiToggleButton()
         configureActionButton(heartButton, title: L10n.t("chat.button.heartbeat"), filled: false, color: theme.heartbeatAction)
 
         heartbeatToast.backgroundColor = theme.toastBackground
         heartbeatToast.textColor = theme.toastText
+
+        detailsDimView.backgroundColor = theme.drawerDim
+        detailsDrawerView.backgroundColor = theme.drawerBackground
+        detailsTitleLabel.textColor = theme.drawerTitle
+        [secureInfoRow, pairInfoRow, distanceInfoRow, splashPreferenceRow].forEach { row in
+            row.backgroundColor = theme.drawerRowBackground
+        }
+        [secureStatusTitleLabel, pairStatusTitleLabel, distanceTitleLabel, partnerMoodTitleLabel, splashPreferenceTitleLabel].forEach { label in
+            label.textColor = theme.drawerRowTitle
+        }
+        [secureStatusValueLabel, pairStatusValueLabel, distanceValueLabel, partnerMoodValueLabel].forEach { label in
+            label.textColor = theme.drawerRowValue
+        }
+        partnerMoodInfoRow.backgroundColor = theme.drawerRowBackground
+        splashPreferenceSwitch.onTintColor = theme.accent
 
         if let selectedMoodIndex {
             setSelectedMood(at: selectedMoodIndex)
@@ -627,6 +943,8 @@ final class ChatViewController: UIViewController {
                 button.configuration = config
             }
         }
+
+        updateDetailsSidebarValues(for: lastRenderedState)
     }
 
     private func configureComposerSendButton() {
@@ -638,12 +956,23 @@ final class ChatViewController: UIViewController {
         composerSendButton.accessibilityLabel = L10n.t("chat.accessibility.send")
     }
 
-    private func configureChip(_ label: InsetLabel, text: String, icon: String) {
-        label.text = "\(icon) \(text)"
-        label.font = UIFont(name: "AvenirNext-DemiBold", size: 12) ?? .systemFont(ofSize: 12, weight: .semibold)
-        label.layer.cornerRadius = 11
-        label.layer.cornerCurve = .continuous
-        label.clipsToBounds = true
+    private func configureEmojiToggleButton() {
+        let iconName = isQuickEmojiVisible ? "chevron.up" : "chevron.down"
+        var configuration = UIButton.Configuration.filled()
+        configuration.cornerStyle = .capsule
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
+        configuration.baseBackgroundColor = theme.secondaryAction.withAlphaComponent(0.16)
+        configuration.baseForegroundColor = theme.secondaryAction
+        configuration.image = UIImage(systemName: iconName)
+        configuration.imagePadding = 5
+
+        var titleAttributes = AttributeContainer()
+        titleAttributes.font = UIFont(name: "AvenirNext-DemiBold", size: 14) ?? .systemFont(ofSize: 14, weight: .semibold)
+        configuration.attributedTitle = AttributedString(L10n.t("chat.button.emoji"), attributes: titleAttributes)
+        emojiToggleButton.configuration = configuration
+        emojiToggleButton.accessibilityLabel = isQuickEmojiVisible
+            ? L10n.t("chat.button.emoji_toggle.hide")
+            : L10n.t("chat.button.emoji_toggle.show")
     }
 
     private func configureActionButton(_ button: UIButton, title: String, filled: Bool, color: UIColor) {
@@ -668,6 +997,13 @@ final class ChatViewController: UIViewController {
                 self.heartbeatToast.alpha = 0
             })
         }
+    }
+
+    private func markSecretMessageAsRevealed(_ messageID: String) {
+        guard !messageID.isEmpty else { return }
+        let insertion = revealedSecretMessageIDs.insert(messageID)
+        guard insertion.inserted else { return }
+        UserDefaults.standard.set(Array(revealedSecretMessageIDs), forKey: Self.revealedSecretMessagesPreferenceKey)
     }
 
     @discardableResult
@@ -701,6 +1037,11 @@ final class ChatViewController: UIViewController {
     }
 
     private func prependMessagesAndPreservePosition() {
+        guard view.window != nil else {
+            needsDeferredMessageReload = true
+            return
+        }
+
         let previousContentHeight = tableView.contentSize.height
         let previousOffsetY = tableView.contentOffset.y
 
@@ -755,24 +1096,41 @@ final class ChatViewController: UIViewController {
         view.addGestureRecognizer(dismissKeyboardTapGesture)
     }
 
+    private func configureMemoryWarningObserver() {
+        memoryWarningObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleMemoryWarning()
+        }
+    }
+
+    private func handleMemoryWarning() {
+        updateVisibleGIFPlayback(isEnabled: false)
+        tableView.visibleCells
+            .compactMap { $0 as? ChatMessageCell }
+            .forEach { $0.setGIFPlaybackEnabled(false) }
+        URLCache.shared.removeAllCachedResponses()
+
+        #if canImport(SDWebImage)
+        SDImageCache.shared.clearMemory()
+        #endif
+
+        viewModel.handleMemoryPressure()
+    }
+
     private func setKeyboardMode(active: Bool, animated: Bool) {
         guard isKeyboardModeActive != active else { return }
         isKeyboardModeActive = active
 
-        if !active {
-            moodSectionContainer.isHidden = false
-            moodSectionContainer.alpha = 0
-        }
-
         let updates = {
-            self.moodSectionContainer.alpha = active ? 0 : 1
             self.tableMinHeightConstraint.constant = active ? 140 : 220
             self.view.layoutIfNeeded()
         }
 
         let completion: (Bool) -> Void = { _ in
             if active {
-                self.moodSectionContainer.isHidden = true
                 self.scrollToBottom(animated: false)
             }
         }
@@ -795,6 +1153,23 @@ final class ChatViewController: UIViewController {
 
     @objc private func handleBackgroundTap() {
         view.endEditing(true)
+    }
+
+    @objc private func detailsButtonTapped() {
+        setDetailsDrawerVisibility(!isDetailsDrawerOpen, animated: true)
+    }
+
+    @objc private func closeDetailsDrawer() {
+        setDetailsDrawerVisibility(false, animated: true)
+    }
+
+    @objc private func splashPreferenceChanged(_ sender: UISwitch) {
+        showsSplashOnLaunch = sender.isOn
+        UserDefaults.standard.set(sender.isOn, forKey: AppConfiguration.UserPreferenceKey.showsSplashOnLaunch)
+    }
+
+    @objc private func emojiToggleTapped() {
+        setQuickEmojiVisibility(!isQuickEmojiVisible, animated: true)
     }
 
     @objc private func moodButtonTapped(_ sender: UIButton) {
@@ -866,7 +1241,12 @@ extension ChatViewController: UITableViewDataSource {
         }
 
         let message = viewModel.message(at: indexPath.row)
-        cell.configure(with: message, isOutgoing: viewModel.isFromCurrentUser(message))
+        let isOutgoing = viewModel.isFromCurrentUser(message)
+        let isSecretRevealed = revealedSecretMessageIDs.contains(message.id)
+        cell.configure(with: message, isOutgoing: isOutgoing, isSecretRevealed: isSecretRevealed)
+        cell.onSecretRevealed = { [weak self] in
+            self?.markSecretMessageAsRevealed(message.id)
+        }
         return cell
     }
 }
@@ -891,7 +1271,9 @@ extension ChatViewController: UITableViewDelegate {
     }
 
     func tableView(_ tableView: UITableView, didEndDisplaying cell: UITableViewCell, forRowAt indexPath: IndexPath) {
-        (cell as? ChatMessageCell)?.setGIFPlaybackEnabled(false)
+        guard let chatCell = cell as? ChatMessageCell else { return }
+        chatCell.setGIFPlaybackEnabled(false)
+        chatCell.releaseGIFImageFromMemory()
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -948,6 +1330,10 @@ extension ChatViewController: UIGestureRecognizerDelegate {
             return false
         }
 
+        if touchedView.isDescendant(of: detailsDrawerView) {
+            return false
+        }
+
         return true
     }
 }
@@ -965,15 +1351,10 @@ extension ChatViewController: GiphyDelegate {
     }
 }
 #endif
-
 private extension ChatViewController {
     struct ChatTheme {
         let backgroundBase: UIColor
         let gradient: [UIColor]
-        let cardBackground: UIColor
-        let cardShadow: UIColor
-        let chipBackground: UIColor
-        let chipText: UIColor
         let fieldBackground: UIColor
         let fieldBorder: UIColor
         let textPrimary: UIColor
@@ -996,6 +1377,12 @@ private extension ChatViewController {
         let toastBackground: UIColor
         let toastText: UIColor
         let title: UIColor
+        let drawerDim: UIColor
+        let drawerBackground: UIColor
+        let drawerTitle: UIColor
+        let drawerRowBackground: UIColor
+        let drawerRowTitle: UIColor
+        let drawerRowValue: UIColor
 
         static func current(for traitCollection: UITraitCollection) -> ChatTheme {
             let isDark = traitCollection.userInterfaceStyle == .dark
@@ -1008,10 +1395,6 @@ private extension ChatViewController {
                         UIColor(red: 0.08, green: 0.11, blue: 0.17, alpha: 1),
                         UIColor(red: 0.07, green: 0.13, blue: 0.14, alpha: 1)
                     ],
-                    cardBackground: UIColor(red: 0.12, green: 0.12, blue: 0.15, alpha: 0.92),
-                    cardShadow: UIColor.black.withAlphaComponent(0.5),
-                    chipBackground: UIColor(red: 0.18, green: 0.18, blue: 0.22, alpha: 0.94),
-                    chipText: UIColor(red: 0.93, green: 0.93, blue: 0.97, alpha: 1),
                     fieldBackground: UIColor(red: 0.15, green: 0.15, blue: 0.19, alpha: 1),
                     fieldBorder: UIColor(red: 0.36, green: 0.36, blue: 0.42, alpha: 1),
                     textPrimary: UIColor(red: 0.95, green: 0.95, blue: 0.98, alpha: 1),
@@ -1033,7 +1416,13 @@ private extension ChatViewController {
                     moodSelectedText: UIColor(red: 1, green: 0.74, blue: 0.84, alpha: 1),
                     toastBackground: UIColor(red: 0.95, green: 0.24, blue: 0.55, alpha: 0.95),
                     toastText: .white,
-                    title: UIColor(red: 0.97, green: 0.97, blue: 0.99, alpha: 1)
+                    title: UIColor(red: 0.97, green: 0.97, blue: 0.99, alpha: 1),
+                    drawerDim: UIColor.black.withAlphaComponent(0.34),
+                    drawerBackground: UIColor(red: 0.13, green: 0.13, blue: 0.17, alpha: 0.98),
+                    drawerTitle: UIColor(red: 0.95, green: 0.95, blue: 0.98, alpha: 1),
+                    drawerRowBackground: UIColor(red: 0.2, green: 0.2, blue: 0.24, alpha: 1),
+                    drawerRowTitle: UIColor(red: 0.78, green: 0.78, blue: 0.84, alpha: 1),
+                    drawerRowValue: UIColor(red: 0.96, green: 0.96, blue: 1, alpha: 1)
                 )
             }
 
@@ -1044,10 +1433,6 @@ private extension ChatViewController {
                     UIColor(red: 0.97, green: 0.96, blue: 1, alpha: 1),
                     UIColor(red: 0.95, green: 0.98, blue: 1, alpha: 1)
                 ],
-                cardBackground: UIColor.white.withAlphaComponent(0.88),
-                cardShadow: UIColor.black.withAlphaComponent(0.2),
-                chipBackground: UIColor.white.withAlphaComponent(0.9),
-                chipText: UIColor(red: 0.36, green: 0.36, blue: 0.42, alpha: 1),
                 fieldBackground: UIColor.white.withAlphaComponent(0.96),
                 fieldBorder: UIColor.systemGray5,
                 textPrimary: UIColor(red: 0.18, green: 0.18, blue: 0.23, alpha: 1),
@@ -1069,24 +1454,14 @@ private extension ChatViewController {
                 moodSelectedText: UIColor(red: 0.68, green: 0.1, blue: 0.32, alpha: 1),
                 toastBackground: UIColor(red: 0.86, green: 0.18, blue: 0.44, alpha: 0.95),
                 toastText: .white,
-                title: UIColor.label
+                title: UIColor.label,
+                drawerDim: UIColor.black.withAlphaComponent(0.22),
+                drawerBackground: UIColor.white.withAlphaComponent(0.98),
+                drawerTitle: UIColor(red: 0.2, green: 0.2, blue: 0.26, alpha: 1),
+                drawerRowBackground: UIColor.white.withAlphaComponent(0.92),
+                drawerRowTitle: UIColor(red: 0.45, green: 0.45, blue: 0.5, alpha: 1),
+                drawerRowValue: UIColor(red: 0.23, green: 0.23, blue: 0.29, alpha: 1)
             )
         }
-    }
-}
-
-private final class InsetLabel: UILabel {
-    var contentInsets = UIEdgeInsets(top: 6, left: 10, bottom: 6, right: 10)
-
-    override func drawText(in rect: CGRect) {
-        super.drawText(in: rect.inset(by: contentInsets))
-    }
-
-    override var intrinsicContentSize: CGSize {
-        let size = super.intrinsicContentSize
-        return CGSize(
-            width: size.width + contentInsets.left + contentInsets.right,
-            height: size.height + contentInsets.top + contentInsets.bottom
-        )
     }
 }

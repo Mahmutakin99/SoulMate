@@ -13,7 +13,11 @@ final class AppFlowCoordinator {
         self.window = window
         firebase.configureCoreIfNeeded()
         firebase.configureMessagingDelegateIfNeeded()
-        showSplashThenRoute()
+        if shouldShowSplashOnLaunch {
+            showSplashThenRoute()
+        } else {
+            routeOnLaunch(animated: false)
+        }
     }
 
     func routeOnLaunch(animated: Bool = false) {
@@ -81,6 +85,10 @@ final class AppFlowCoordinator {
         window.makeKeyAndVisible()
     }
 
+    private var shouldShowSplashOnLaunch: Bool {
+        UserDefaults.standard.object(forKey: AppConfiguration.UserPreferenceKey.showsSplashOnLaunch) as? Bool ?? true
+    }
+
     private func route(for state: AppLaunchState, animated: Bool) {
         if case .unauthenticated = state {
             // no-op
@@ -128,6 +136,9 @@ final class AppFlowCoordinator {
         }
         controller.onRequestSignOut = { [weak self] in
             self?.signOut()
+        }
+        controller.onRequirePairing = { [weak self] in
+            self?.routeOnLaunch(animated: true)
         }
         setRoot(controller, animated: animated)
     }

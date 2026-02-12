@@ -35,6 +35,113 @@ enum MoodStatus: String, CaseIterable, Codable {
     }
 }
 
+enum RelationshipRequestType: String, Codable {
+    case pair
+    case unpair
+}
+
+enum RelationshipRequestStatus: String, Codable {
+    case pending
+    case accepted
+    case rejected
+    case expired
+    case cancelled
+}
+
+enum ArchiveChoice: String, Codable {
+    case keep
+    case delete
+}
+
+enum RelationshipRequestDecision: String {
+    case accept
+    case reject
+}
+
+struct RelationshipRequest: Hashable {
+    let id: String
+    let type: RelationshipRequestType
+    let status: RelationshipRequestStatus
+    let fromUID: String
+    let toUID: String
+    let fromFirstName: String?
+    let fromLastName: String?
+    let fromSixDigitUID: String?
+    let initiatorArchiveChoice: ArchiveChoice?
+    let recipientArchiveChoice: ArchiveChoice?
+    let createdAt: Date
+    let expiresAt: Date
+    let resolvedAt: Date?
+
+    init?(
+        id: String,
+        dictionary: [String: Any]
+    ) {
+        guard let typeRaw = dictionary["type"] as? String,
+              let type = RelationshipRequestType(rawValue: typeRaw),
+              let statusRaw = dictionary["status"] as? String,
+              let status = RelationshipRequestStatus(rawValue: statusRaw),
+              let fromUID = dictionary["fromUID"] as? String,
+              let toUID = dictionary["toUID"] as? String,
+              let createdAt = dictionary["createdAt"] as? TimeInterval,
+              let expiresAt = dictionary["expiresAt"] as? TimeInterval else {
+            return nil
+        }
+
+        self.id = id
+        self.type = type
+        self.status = status
+        self.fromUID = fromUID
+        self.toUID = toUID
+        self.fromFirstName = dictionary["fromFirstName"] as? String
+        self.fromLastName = dictionary["fromLastName"] as? String
+        self.fromSixDigitUID = dictionary["fromSixDigitUID"] as? String
+
+        if let initiatorArchiveChoiceRaw = dictionary["initiatorArchiveChoice"] as? String {
+            self.initiatorArchiveChoice = ArchiveChoice(rawValue: initiatorArchiveChoiceRaw)
+        } else {
+            self.initiatorArchiveChoice = nil
+        }
+
+        if let recipientArchiveChoiceRaw = dictionary["recipientArchiveChoice"] as? String {
+            self.recipientArchiveChoice = ArchiveChoice(rawValue: recipientArchiveChoiceRaw)
+        } else {
+            self.recipientArchiveChoice = nil
+        }
+
+        self.createdAt = Date(timeIntervalSince1970: createdAt)
+        self.expiresAt = Date(timeIntervalSince1970: expiresAt)
+
+        if let resolvedAt = dictionary["resolvedAt"] as? TimeInterval {
+            self.resolvedAt = Date(timeIntervalSince1970: resolvedAt)
+        } else {
+            self.resolvedAt = nil
+        }
+    }
+
+    var isPending: Bool {
+        status == .pending
+    }
+
+    var isExpired: Bool {
+        Date() >= expiresAt
+    }
+
+    var senderDisplayName: String {
+        let first = fromFirstName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let last = fromLastName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let fullName = "\(first) \(last)".trimmingCharacters(in: .whitespacesAndNewlines)
+        if !fullName.isEmpty {
+            return fullName
+        }
+
+        if let fromSixDigitUID, !fromSixDigitUID.isEmpty {
+            return fromSixDigitUID
+        }
+        return fromUID
+    }
+}
+
 struct ChatPayload: Codable {
     let type: ChatPayloadType
     let value: String

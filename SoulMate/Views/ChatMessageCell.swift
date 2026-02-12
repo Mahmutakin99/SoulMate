@@ -7,6 +7,7 @@ final class ChatMessageCell: UITableViewCell {
     static let reuseIdentifier = "ChatMessageCell"
     private let defaultGIFLoopCount = 3
     private let manualReplayLoopCount = 1
+    var onSecretRevealed: (() -> Void)?
 
     private let bubbleView = UIView()
     private let messageLabel = UILabel()
@@ -17,8 +18,10 @@ final class ChatMessageCell: UITableViewCell {
     #endif
     private let scratchRevealView = ScratchRevealView()
 
-    private var leadingConstraint: NSLayoutConstraint!
-    private var trailingConstraint: NSLayoutConstraint!
+    private var minLeadingConstraint: NSLayoutConstraint!
+    private var maxTrailingConstraint: NSLayoutConstraint!
+    private var incomingAlignmentConstraint: NSLayoutConstraint!
+    private var outgoingAlignmentConstraint: NSLayoutConstraint!
     private var gifHeightConstraint: NSLayoutConstraint!
     private var gifTopConstraint: NSLayoutConstraint!
     private var gifBottomConstraint: NSLayoutConstraint!
@@ -43,6 +46,7 @@ final class ChatMessageCell: UITableViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        onSecretRevealed = nil
         messageLabel.text = nil
         currentGIFURLString = nil
         isGIFContent = false
@@ -54,14 +58,11 @@ final class ChatMessageCell: UITableViewCell {
         resetGIFLoopMode(loopCount: defaultGIFLoopCount)
         gifImageView.stopAnimating()
         gifImageView.image = nil
-        gifImageView.isHidden = true
-        gifHeightConstraint.constant = 0
-        messageLabel.isHidden = false
-        messageTopConstraint.isActive = true
-        messageBottomConstraint.isActive = true
-        gifTopConstraint.isActive = false
-        gifBottomConstraint.isActive = false
+        setContentLayout(messageVisible: true, gifVisible: false, gifHeight: 0)
+        outgoingAlignmentConstraint.isActive = false
+        incomingAlignmentConstraint.isActive = true
         scratchRevealView.isHidden = true
+        scratchRevealView.onFullyRevealed = nil
         scratchRevealView.reset()
     }
 
@@ -70,9 +71,19 @@ final class ChatMessageCell: UITableViewCell {
         updateGIFPlaybackState()
     }
 
-    func configure(with message: ChatMessage, isOutgoing: Bool) {
-        leadingConstraint.isActive = !isOutgoing
-        trailingConstraint.isActive = isOutgoing
+    func releaseGIFImageFromMemory() {
+        guard isGIFContent else { return }
+        gifImageView.stopAnimating()
+        #if canImport(SDWebImage)
+        gifImageView.sd_cancelCurrentImageLoad()
+        #endif
+        gifImageView.image = nil
+        currentGIFURLString = nil
+        hasPlayedInitialGIF = false
+    }
+
+    func configure(with message: ChatMessage, isOutgoing: Bool, isSecretRevealed: Bool = false) {
+        setBubbleAlignment(isOutgoing: isOutgoing)
 
         let isDark = traitCollection.userInterfaceStyle == .dark
         bubbleView.backgroundColor = isOutgoing
@@ -91,13 +102,7 @@ final class ChatMessageCell: UITableViewCell {
             hasPlayedInitialGIF = false
             messageLabel.text = message.value
             messageLabel.font = UIFont(name: "AvenirNext-Medium", size: 17) ?? .systemFont(ofSize: 17, weight: .medium)
-            gifImageView.isHidden = true
-            gifHeightConstraint.constant = 0
-            messageLabel.isHidden = false
-            messageTopConstraint.isActive = true
-            messageBottomConstraint.isActive = true
-            gifTopConstraint.isActive = false
-            gifBottomConstraint.isActive = false
+            setContentLayout(messageVisible: true, gifVisible: false, gifHeight: 0)
 
         case .emoji:
             isGIFContent = false
@@ -105,13 +110,7 @@ final class ChatMessageCell: UITableViewCell {
             hasPlayedInitialGIF = false
             messageLabel.text = message.value
             messageLabel.font = .systemFont(ofSize: 34)
-            gifImageView.isHidden = true
-            gifHeightConstraint.constant = 0
-            messageLabel.isHidden = false
-            messageTopConstraint.isActive = true
-            messageBottomConstraint.isActive = true
-            gifTopConstraint.isActive = false
-            gifBottomConstraint.isActive = false
+            setContentLayout(messageVisible: true, gifVisible: false, gifHeight: 0)
 
         case .nudge:
             isGIFContent = false
@@ -119,23 +118,11 @@ final class ChatMessageCell: UITableViewCell {
             hasPlayedInitialGIF = false
             messageLabel.text = "\(message.value)"
             messageLabel.font = UIFont(name: "AvenirNext-DemiBold", size: 17) ?? .systemFont(ofSize: 17, weight: .semibold)
-            gifImageView.isHidden = true
-            gifHeightConstraint.constant = 0
-            messageLabel.isHidden = false
-            messageTopConstraint.isActive = true
-            messageBottomConstraint.isActive = true
-            gifTopConstraint.isActive = false
-            gifBottomConstraint.isActive = false
+            setContentLayout(messageVisible: true, gifVisible: false, gifHeight: 0)
 
         case .gif:
             isGIFContent = true
-            gifImageView.isHidden = false
-            gifHeightConstraint.constant = 180
-            messageLabel.isHidden = true
-            messageTopConstraint.isActive = false
-            messageBottomConstraint.isActive = false
-            gifTopConstraint.isActive = true
-            gifBottomConstraint.isActive = true
+            setContentLayout(messageVisible: false, gifVisible: true, gifHeight: 180)
 
             if let url = URL(string: message.value) {
                 #if canImport(SDWebImage)
@@ -157,21 +144,29 @@ final class ChatMessageCell: UITableViewCell {
                 isGIFContent = false
                 currentGIFURLString = nil
                 hasPlayedInitialGIF = false
-                gifImageView.isHidden = true
-                gifHeightConstraint.constant = 0
-                messageLabel.isHidden = false
                 messageLabel.text = message.value
                 messageLabel.font = .preferredFont(forTextStyle: .caption1)
-                messageTopConstraint.isActive = true
-                messageBottomConstraint.isActive = true
-                gifTopConstraint.isActive = false
-                gifBottomConstraint.isActive = false
+                setContentLayout(messageVisible: true, gifVisible: false, gifHeight: 0)
             }
         }
 
-        let shouldMask = message.isSecret && !isOutgoing
-        scratchRevealView.isHidden = !shouldMask
-        scratchRevealView.reset()
+        let shouldMask = message.isSecret && !isOutgoing && !isSecretRevealed
+        if shouldMask {
+            scratchRevealView.reset()
+            scratchRevealView.isHidden = false
+            scratchRevealView.onFullyRevealed = { [weak self] in
+                self?.scratchRevealView.isHidden = true
+                self?.onSecretRevealed?()
+            }
+        } else {
+            scratchRevealView.onFullyRevealed = nil
+            scratchRevealView.isHidden = true
+            if message.isSecret && !isOutgoing && isSecretRevealed {
+                scratchRevealView.revealPermanently(animated: false)
+            } else {
+                scratchRevealView.reset()
+            }
+        }
         updateGIFPlaybackState()
     }
 
@@ -271,8 +266,10 @@ final class ChatMessageCell: UITableViewCell {
         bubbleView.addSubview(gifImageView)
         bubbleView.addSubview(scratchRevealView)
 
-        leadingConstraint = bubbleView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 14)
-        trailingConstraint = bubbleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -14)
+        minLeadingConstraint = bubbleView.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: 14)
+        maxTrailingConstraint = bubbleView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -14)
+        incomingAlignmentConstraint = bubbleView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 14)
+        outgoingAlignmentConstraint = bubbleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -14)
         gifHeightConstraint = gifImageView.heightAnchor.constraint(equalToConstant: 0)
         messageTopConstraint = messageLabel.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 10)
         messageBottomConstraint = messageLabel.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -10)
@@ -283,6 +280,9 @@ final class ChatMessageCell: UITableViewCell {
             bubbleView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
             bubbleView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
             bubbleView.widthAnchor.constraint(lessThanOrEqualTo: contentView.widthAnchor, multiplier: 0.78),
+            minLeadingConstraint,
+            maxTrailingConstraint,
+            incomingAlignmentConstraint,
 
             messageLabel.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 12),
             messageLabel.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -12),
@@ -291,8 +291,6 @@ final class ChatMessageCell: UITableViewCell {
 
             gifImageView.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 8),
             gifImageView.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -8),
-            gifTopConstraint,
-            gifBottomConstraint,
             gifHeightConstraint,
 
             scratchRevealView.topAnchor.constraint(equalTo: bubbleView.topAnchor),
@@ -300,9 +298,36 @@ final class ChatMessageCell: UITableViewCell {
             scratchRevealView.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor),
             scratchRevealView.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor)
         ])
+    }
 
-        leadingConstraint.isActive = true
+    private func setBubbleAlignment(isOutgoing: Bool) {
+        incomingAlignmentConstraint.isActive = false
+        outgoingAlignmentConstraint.isActive = false
+        if isOutgoing {
+            outgoingAlignmentConstraint.isActive = true
+        } else {
+            incomingAlignmentConstraint.isActive = true
+        }
+    }
+
+    private func setContentLayout(messageVisible: Bool, gifVisible: Bool, gifHeight: CGFloat) {
+        messageTopConstraint.isActive = false
+        messageBottomConstraint.isActive = false
         gifTopConstraint.isActive = false
         gifBottomConstraint.isActive = false
+
+        messageLabel.isHidden = !messageVisible
+        gifImageView.isHidden = !gifVisible
+        gifHeightConstraint.constant = gifHeight
+
+        if messageVisible {
+            messageTopConstraint.isActive = true
+            messageBottomConstraint.isActive = true
+        }
+
+        if gifVisible {
+            gifTopConstraint.isActive = true
+            gifBottomConstraint.isActive = true
+        }
     }
 }

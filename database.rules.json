@@ -61,6 +61,15 @@
           }
         }
       }
+    },
+    "relationshipRequests": {
+      ".indexOn": ["fromUID", "toUID", "status", "createdAt", "expiresAt"],
+      ".read": "auth != null && ((query.orderByChild == 'toUID' && query.equalTo == auth.uid) || (query.orderByChild == 'fromUID' && query.equalTo == auth.uid))",
+      ".write": false,
+      "$requestId": {
+        ".read": "auth != null && (data.child('fromUID').val() === auth.uid || data.child('toUID').val() === auth.uid)",
+        ".write": false
+      }
     }
   }
 }

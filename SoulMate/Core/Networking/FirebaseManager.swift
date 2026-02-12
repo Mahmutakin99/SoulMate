@@ -14,6 +14,9 @@ import FirebaseDatabase
 #if canImport(FirebaseMessaging)
 import FirebaseMessaging
 #endif
+#if canImport(FirebaseFunctions)
+import FirebaseFunctions
+#endif
 
 enum FirebaseManagerError: LocalizedError {
     case sdkMissing
@@ -62,13 +65,14 @@ final class FirebaseManager: NSObject {
     private let configurationLock = NSLock()
     private var isCoreConfigured = false
     private var isMessagingDelegateConfigured = false
+    private var hasAPNSToken = false
+    private var isSyncingFCMToken = false
+    private var lastFCMTokenSyncAt: Date?
+    private let minimumFCMTokenSyncInterval: TimeInterval = 5
     private let pushPromptRequestedKey = "com.soulmate.push.prompt.requested"
 
     private override init() {
         super.init()
-        #if canImport(FirebaseCore)
-        isCoreConfigured = FirebaseApp.app() != nil
-        #endif
     }
 
     func configureIfNeeded() {
@@ -81,8 +85,7 @@ final class FirebaseManager: NSObject {
         configurationLock.lock()
         defer { configurationLock.unlock() }
 
-        if isCoreConfigured || FirebaseApp.app() != nil {
-            isCoreConfigured = true
+        if isCoreConfigured {
             return
         }
 
@@ -137,6 +140,9 @@ final class FirebaseManager: NSObject {
 
     func updateAPNSToken(_ deviceToken: Data) {
         #if canImport(FirebaseMessaging)
+        configurationLock.lock()
+        hasAPNSToken = true
+        configurationLock.unlock()
         Messaging.messaging().apnsToken = deviceToken
         syncFCMTokenIfPossible()
         #endif
@@ -144,17 +150,42 @@ final class FirebaseManager: NSObject {
 
     func syncFCMTokenIfPossible() {
         #if canImport(FirebaseMessaging)
+        #if targetEnvironment(simulator)
+        return
+        #endif
         guard isFirebaseConfigured() else { return }
         guard let uid = currentUserID() else { return }
+        let now = Date()
+
+        configurationLock.lock()
+        if !hasAPNSToken || isSyncingFCMToken {
+            configurationLock.unlock()
+            return
+        }
+        if let lastSync = lastFCMTokenSyncAt, now.timeIntervalSince(lastSync) < minimumFCMTokenSyncInterval {
+            configurationLock.unlock()
+            return
+        }
+        isSyncingFCMToken = true
+        lastFCMTokenSyncAt = now
+        configurationLock.unlock()
 
         Messaging.messaging().token { [weak self] token, error in
+            guard let self else { return }
+            self.configurationLock.lock()
+            self.isSyncingFCMToken = false
+            self.configurationLock.unlock()
+
             if let error {
-                print("FCM token alınamadı: \(error.localizedDescription)")
+                let message = error.localizedDescription.lowercased()
+                if !(message.contains("no apns token") || message.contains("apns")) {
+                    print("FCM token alınamadı: \(error.localizedDescription)")
+                }
                 return
             }
 
             guard let token, !token.isEmpty else { return }
-            self?.updateFCMToken(uid: uid, token: token)
+            self.updateFCMToken(uid: uid, token: token)
         }
         #endif
     }
@@ -491,6 +522,257 @@ final class FirebaseManager: NSObject {
         #endif
     }
 
+    func deleteConversationData(chatID: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        #if canImport(FirebaseDatabase)
+        guard isFirebaseConfigured() else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("firebase.error.config_not_ready_restart"))))
+            return
+        }
+
+        let chatsPath = "\(AppConfiguration.DatabasePath.chats)/\(chatID)"
+        let eventsPath = "\(AppConfiguration.DatabasePath.events)/\(chatID)"
+        let lock = NSLock()
+        var firstError: Error?
+        let group = DispatchGroup()
+
+        group.enter()
+        rootRef()
+            .child(AppConfiguration.DatabasePath.chats)
+            .child(chatID)
+            .removeValue { error, _ in
+                if let error {
+                    lock.lock()
+                    if firstError == nil {
+                        firstError = self.mapDatabaseError(error, path: chatsPath)
+                    }
+                    lock.unlock()
+                }
+                group.leave()
+            }
+
+        group.enter()
+        rootRef()
+            .child(AppConfiguration.DatabasePath.events)
+            .child(chatID)
+            .removeValue { error, _ in
+                if let error {
+                    lock.lock()
+                    if firstError == nil {
+                        firstError = self.mapDatabaseError(error, path: eventsPath)
+                    }
+                    lock.unlock()
+                }
+                group.leave()
+            }
+
+        group.notify(queue: .main) {
+            if let firstError {
+                completion(.failure(firstError))
+            } else {
+                completion(.success(()))
+            }
+        }
+        #else
+        completion(.failure(FirebaseManagerError.sdkMissing))
+        #endif
+    }
+
+    func deleteConversationForUnpair(partnerUID: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        #if canImport(FirebaseFunctions)
+        guard isFirebaseConfigured() else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("firebase.error.config_not_ready_restart"))))
+            return
+        }
+
+        let trimmedPartnerUID = partnerUID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPartnerUID.isEmpty else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("firebase.error.partner_not_found"))))
+            return
+        }
+
+        let callable = Functions.functions(region: "europe-west1").httpsCallable("deleteConversationForUnpair")
+        callable.call(["partnerUID": trimmedPartnerUID]) { [weak self] _, error in
+            if let error {
+                completion(.failure(self?.mapFunctionsError(error, action: "deleteConversationForUnpair") ?? error))
+            } else {
+                completion(.success(()))
+            }
+        }
+        #else
+        completion(.failure(FirebaseManagerError.sdkMissing))
+        #endif
+    }
+
+    func createPairRequest(partnerCode: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        #if canImport(FirebaseFunctions)
+        guard isFirebaseConfigured() else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("firebase.error.config_not_ready_restart"))))
+            return
+        }
+
+        let trimmedCode = partnerCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        let callable = Functions.functions(region: "europe-west1").httpsCallable("createPairRequest")
+        callable.call(["partnerCode": trimmedCode]) { [weak self] _, error in
+            if let error {
+                completion(.failure(self?.mapFunctionsError(error, action: "createPairRequest") ?? error))
+            } else {
+                completion(.success(()))
+            }
+        }
+        #else
+        completion(.failure(FirebaseManagerError.sdkMissing))
+        #endif
+    }
+
+    func respondPairRequest(
+        requestID: String,
+        decision: RelationshipRequestDecision,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        #if canImport(FirebaseFunctions)
+        guard isFirebaseConfigured() else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("firebase.error.config_not_ready_restart"))))
+            return
+        }
+
+        let trimmedRequestID = requestID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let callable = Functions.functions(region: "europe-west1").httpsCallable("respondPairRequest")
+        callable.call([
+            "requestID": trimmedRequestID,
+            "decision": decision.rawValue
+        ]) { [weak self] _, error in
+            if let error {
+                completion(.failure(self?.mapFunctionsError(error, action: "respondPairRequest") ?? error))
+            } else {
+                completion(.success(()))
+            }
+        }
+        #else
+        completion(.failure(FirebaseManagerError.sdkMissing))
+        #endif
+    }
+
+    func createUnpairRequest(
+        archiveChoice: ArchiveChoice,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        #if canImport(FirebaseFunctions)
+        guard isFirebaseConfigured() else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("firebase.error.config_not_ready_restart"))))
+            return
+        }
+
+        let callable = Functions.functions(region: "europe-west1").httpsCallable("createUnpairRequest")
+        callable.call([
+            "archiveChoice": archiveChoice.rawValue
+        ]) { [weak self] _, error in
+            if let error {
+                completion(.failure(self?.mapFunctionsError(error, action: "createUnpairRequest") ?? error))
+            } else {
+                completion(.success(()))
+            }
+        }
+        #else
+        completion(.failure(FirebaseManagerError.sdkMissing))
+        #endif
+    }
+
+    func respondUnpairRequest(
+        requestID: String,
+        decision: RelationshipRequestDecision,
+        recipientArchiveChoice: ArchiveChoice?,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        #if canImport(FirebaseFunctions)
+        guard isFirebaseConfigured() else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("firebase.error.config_not_ready_restart"))))
+            return
+        }
+
+        let trimmedRequestID = requestID.trimmingCharacters(in: .whitespacesAndNewlines)
+        var payload: [String: Any] = [
+            "requestID": trimmedRequestID,
+            "decision": decision.rawValue
+        ]
+        if let recipientArchiveChoice {
+            payload["recipientArchiveChoice"] = recipientArchiveChoice.rawValue
+        }
+
+        let callable = Functions.functions(region: "europe-west1").httpsCallable("respondUnpairRequest")
+        callable.call(payload) { [weak self] _, error in
+            if let error {
+                completion(.failure(self?.mapFunctionsError(error, action: "respondUnpairRequest") ?? error))
+            } else {
+                completion(.success(()))
+            }
+        }
+        #else
+        completion(.failure(FirebaseManagerError.sdkMissing))
+        #endif
+    }
+
+    func observeIncomingRequests(uid: String, onChange: @escaping ([RelationshipRequest]) -> Void) -> FirebaseObservationToken {
+        #if canImport(FirebaseDatabase)
+        guard isFirebaseConfigured() else {
+            print("observeIncomingRequests atlandı: Firebase yapılandırılmamış.")
+            return FirebaseObservationToken {}
+        }
+
+        let baseRef = rootRef().child(AppConfiguration.DatabasePath.relationshipRequests)
+        let limit = AppConfiguration.Request.maxInboxItems > 0 ? AppConfiguration.Request.maxInboxItems : 1
+        let query = baseRef
+            .queryOrdered(byChild: "toUID")
+            .queryEqual(toValue: uid)
+            .queryLimited(toLast: limit)
+
+        let path = "\(AppConfiguration.DatabasePath.relationshipRequests)?toUID=\(uid)"
+        let handle = query.observe(.value, with: { [weak self] snapshot in
+            guard let self else { return }
+            onChange(self.parseRelationshipRequests(from: snapshot))
+        }, withCancel: { [weak self] error in
+            let mapped = self?.mapDatabaseError(error, path: path) ?? error
+            print("observeIncomingRequests iptal edildi: \((mapped as NSError).localizedDescription)")
+        })
+
+        return FirebaseObservationToken {
+            query.removeObserver(withHandle: handle)
+        }
+        #else
+        return FirebaseObservationToken {}
+        #endif
+    }
+
+    func observeOutgoingRequests(uid: String, onChange: @escaping ([RelationshipRequest]) -> Void) -> FirebaseObservationToken {
+        #if canImport(FirebaseDatabase)
+        guard isFirebaseConfigured() else {
+            print("observeOutgoingRequests atlandı: Firebase yapılandırılmamış.")
+            return FirebaseObservationToken {}
+        }
+
+        let baseRef = rootRef().child(AppConfiguration.DatabasePath.relationshipRequests)
+        let limit = AppConfiguration.Request.maxInboxItems > 0 ? AppConfiguration.Request.maxInboxItems : 1
+        let query = baseRef
+            .queryOrdered(byChild: "fromUID")
+            .queryEqual(toValue: uid)
+            .queryLimited(toLast: limit)
+
+        let path = "\(AppConfiguration.DatabasePath.relationshipRequests)?fromUID=\(uid)"
+        let handle = query.observe(.value, with: { [weak self] snapshot in
+            guard let self else { return }
+            onChange(self.parseRelationshipRequests(from: snapshot))
+        }, withCancel: { [weak self] error in
+            let mapped = self?.mapDatabaseError(error, path: path) ?? error
+            print("observeOutgoingRequests iptal edildi: \((mapped as NSError).localizedDescription)")
+        })
+
+        return FirebaseObservationToken {
+            query.removeObserver(withHandle: handle)
+        }
+        #else
+        return FirebaseObservationToken {}
+        #endif
+    }
+
     func updateNameFields(uid: String, firstName: String, lastName: String, completion: @escaping (Result<Void, Error>) -> Void) {
         #if canImport(FirebaseDatabase)
         guard isFirebaseConfigured() else {
@@ -542,7 +824,11 @@ final class FirebaseManager: NSObject {
         #endif
     }
 
-    func observeUserProfile(uid: String, onChange: @escaping (UserPairProfile) -> Void) -> FirebaseObservationToken {
+    func observeUserProfile(
+        uid: String,
+        onChange: @escaping (UserPairProfile) -> Void,
+        onCancelled: ((Error) -> Void)? = nil
+    ) -> FirebaseObservationToken {
         #if canImport(FirebaseDatabase)
         guard isFirebaseConfigured() else {
             print("observeUserProfile atlandı: Firebase yapılandırılmamış.")
@@ -557,6 +843,7 @@ final class FirebaseManager: NSObject {
         }, withCancel: { [weak self] error in
             let mapped = self?.mapDatabaseError(error, path: path) ?? error
             print("observeUserProfile iptal edildi: \((mapped as NSError).localizedDescription)")
+            onCancelled?(mapped)
         })
 
         return FirebaseObservationToken {
@@ -664,7 +951,8 @@ final class FirebaseManager: NSObject {
     func observeEncryptedMessages(
         chatID: String,
         startingAt sentAt: TimeInterval? = nil,
-        onMessage: @escaping (EncryptedMessageEnvelope) -> Void
+        onMessage: @escaping (EncryptedMessageEnvelope) -> Void,
+        onCancelled: ((Error) -> Void)? = nil
     ) -> FirebaseObservationToken {
         #if canImport(FirebaseDatabase)
         guard isFirebaseConfigured() else {
@@ -687,6 +975,7 @@ final class FirebaseManager: NSObject {
         }, withCancel: { [weak self] error in
             let mapped = self?.mapDatabaseError(error, path: path) ?? error
             print("observeEncryptedMessages iptal edildi: \((mapped as NSError).localizedDescription)")
+            onCancelled?(mapped)
         })
 
         return FirebaseObservationToken {
@@ -726,7 +1015,12 @@ final class FirebaseManager: NSObject {
         #endif
     }
 
-    func observeHeartbeat(chatID: String, currentUserID: String, onHeartbeat: @escaping () -> Void) -> FirebaseObservationToken {
+    func observeHeartbeat(
+        chatID: String,
+        currentUserID: String,
+        onHeartbeat: @escaping () -> Void,
+        onCancelled: ((Error) -> Void)? = nil
+    ) -> FirebaseObservationToken {
         #if canImport(FirebaseDatabase)
         guard isFirebaseConfigured() else {
             print("observeHeartbeat atlandı: Firebase yapılandırılmamış.")
@@ -749,6 +1043,7 @@ final class FirebaseManager: NSObject {
         }, withCancel: { [weak self] error in
             let mapped = self?.mapDatabaseError(error, path: path) ?? error
             print("observeHeartbeat iptal edildi: \((mapped as NSError).localizedDescription)")
+            onCancelled?(mapped)
         })
 
         return FirebaseObservationToken {
@@ -783,7 +1078,11 @@ final class FirebaseManager: NSObject {
         #endif
     }
 
-    func observeMoodCiphertext(uid: String, onChange: @escaping (String?) -> Void) -> FirebaseObservationToken {
+    func observeMoodCiphertext(
+        uid: String,
+        onChange: @escaping (String?) -> Void,
+        onCancelled: ((Error) -> Void)? = nil
+    ) -> FirebaseObservationToken {
         #if canImport(FirebaseDatabase)
         guard isFirebaseConfigured() else {
             print("observeMoodCiphertext atlandı: Firebase yapılandırılmamış.")
@@ -797,6 +1096,7 @@ final class FirebaseManager: NSObject {
         }, withCancel: { [weak self] error in
             let mapped = self?.mapDatabaseError(error, path: path) ?? error
             print("observeMoodCiphertext iptal edildi: \((mapped as NSError).localizedDescription)")
+            onCancelled?(mapped)
         })
 
         return FirebaseObservationToken {
@@ -912,7 +1212,7 @@ final class FirebaseManager: NSObject {
 
     private func isFirebaseConfigured() -> Bool {
         #if canImport(FirebaseCore)
-        return FirebaseApp.app() != nil
+        return isCoreConfigured
         #else
         return false
         #endif
@@ -979,6 +1279,96 @@ final class FirebaseManager: NSObject {
 
         return FirebaseManagerError.generic(L10n.f("firebase.db.error.generic_format", path, nsError.localizedDescription))
     }
+
+    private func mapFunctionsError(_ error: Error, action: String) -> Error {
+        let nsError = error as NSError
+        print("FirebaseFunctions hatası action=\(action) domain=\(nsError.domain) code=\(nsError.code) message=\(nsError.localizedDescription)")
+
+        let detailsValue = nsError.userInfo["details"] ?? nsError.userInfo["FIRFunctionsErrorDetailsKey"]
+        let detailDescription = String(describing: detailsValue ?? "").lowercased()
+        let localizedDescription = nsError.localizedDescription.lowercased()
+        let combined = "\(localizedDescription) \(detailDescription)"
+
+        #if canImport(FirebaseFunctions)
+        if nsError.domain == FunctionsErrorDomain {
+            if let code = FunctionsErrorCode(rawValue: nsError.code) {
+                switch code {
+                case .unauthenticated:
+                    return FirebaseManagerError.unauthenticated
+                case .invalidArgument:
+                    if combined.contains("invalid_pair_code") {
+                        return FirebaseManagerError.invalidPairCode
+                    }
+                    if combined.contains("self_pair_not_allowed") {
+                        return FirebaseManagerError.generic(L10n.t("pairing.error.self_pair"))
+                    }
+                    if combined.contains("invalid_archive_choice") {
+                        return FirebaseManagerError.generic(L10n.t("pairing.request.error.generic_invalid"))
+                    }
+                    return FirebaseManagerError.generic(L10n.t("pairing.request.error.generic_invalid"))
+                case .failedPrecondition:
+                    if combined.contains("user_already_paired") {
+                        return FirebaseManagerError.generic(L10n.t("pairing.request.error.user_already_paired"))
+                    }
+                    if combined.contains("target_already_paired") {
+                        return FirebaseManagerError.generic(L10n.t("pairing.request.error.target_already_paired"))
+                    }
+                    if combined.contains("partner_not_found") {
+                        return FirebaseManagerError.partnerNotFound
+                    }
+                    if combined.contains("request_expired") {
+                        return FirebaseManagerError.generic(L10n.t("pairing.request.error.expired"))
+                    }
+                    if combined.contains("request_not_pending") {
+                        return FirebaseManagerError.generic(L10n.t("pairing.request.error.not_pending"))
+                    }
+                    if combined.contains("duplicate_pending_unpair_request") {
+                        return FirebaseManagerError.generic(L10n.t("pairing.request.notice.unpair_already_pending"))
+                    }
+                    if combined.contains("duplicate_pending_pair_request") {
+                        return FirebaseManagerError.generic(L10n.t("pairing.request.error.duplicate_pending"))
+                    }
+                    if combined.contains("not_mutual_pair") {
+                        return FirebaseManagerError.generic(L10n.t("pairing.request.error.not_mutual"))
+                    }
+                    if action == "deleteConversationForUnpair" {
+                        return FirebaseManagerError.generic(L10n.t("pairing.unpair.error.remote_delete_required"))
+                    }
+                    return FirebaseManagerError.generic(L10n.t("pairing.request.error.generic_invalid"))
+                case .permissionDenied:
+                    return FirebaseManagerError.generic(L10n.t("pairing.request.error.permission_denied"))
+                case .notFound:
+                    return FirebaseManagerError.generic(L10n.t("pairing.request.error.function_not_deployed"))
+                default:
+                    return FirebaseManagerError.generic(L10n.f("firebase.auth.error.action_failed_format", action, nsError.localizedDescription))
+                }
+            }
+        }
+        #endif
+
+        return FirebaseManagerError.generic(L10n.f("firebase.auth.error.action_failed_format", action, nsError.localizedDescription))
+    }
+
+    #if canImport(FirebaseDatabase)
+    private func parseRelationshipRequests(from snapshot: DataSnapshot) -> [RelationshipRequest] {
+        var requests: [RelationshipRequest] = []
+        for case let child as DataSnapshot in snapshot.children {
+            guard let dictionary = child.value as? [String: Any],
+                  let request = RelationshipRequest(id: child.key, dictionary: dictionary) else {
+                continue
+            }
+            requests.append(request)
+        }
+
+        requests.sort { lhs, rhs in
+            if lhs.createdAt == rhs.createdAt {
+                return lhs.id > rhs.id
+            }
+            return lhs.createdAt > rhs.createdAt
+        }
+        return requests
+    }
+    #endif
 }
 
 #if canImport(FirebaseMessaging)

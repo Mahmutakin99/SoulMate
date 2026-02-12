@@ -698,6 +698,23 @@
         }
       }
     },
+    "pairing.status.unpair_request_pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unpair request is pending. Waiting for your partner's response."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaldırma isteği beklemede. Partner yanıtı bekleniyor."
+          }
+        }
+      }
+    },
     "pairing.status.waiting_mutual": {
       "extractionState": "manual",
       "localizations": {
@@ -1221,6 +1238,244 @@
           "stringUnit": {
             "state": "translated",
             "value": "Kalp Atışı"
+          }
+        }
+      }
+    },
+    "chat.button.emoji_toggle.show": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Emojis"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emojiler Göster"
+          }
+        }
+      }
+    },
+    "chat.button.emoji_toggle.hide": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Emojis"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emojiler Gizle"
+          }
+        }
+      }
+    },
+    "chat.sidebar.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Details"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum Detayları"
+          }
+        }
+      }
+    },
+    "chat.sidebar.item.secure_channel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Secure Channel"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güvenli Kanal"
+          }
+        }
+      }
+    },
+    "chat.sidebar.item.pair_status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair Status"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleşme Durumu"
+          }
+        }
+      }
+    },
+    "chat.sidebar.item.distance": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distance"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesafe"
+          }
+        }
+      }
+    },
+    "chat.sidebar.item.partner_mood": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partner Mood"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partner Modu"
+          }
+        }
+      }
+    },
+    "chat.sidebar.value.active": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktif"
+          }
+        }
+      }
+    },
+    "chat.sidebar.value.inactive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inactive"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasif"
+          }
+        }
+      }
+    },
+    "chat.sidebar.value.paired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paired"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleşti"
+          }
+        }
+      }
+    },
+    "chat.sidebar.value.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bekleniyor"
+          }
+        }
+      }
+    },
+    "chat.sidebar.value.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilinmiyor"
+          }
+        }
+      }
+    },
+    "chat.sidebar.value.unpaired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unpaired"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleşme Yok"
+          }
+        }
+      }
+    },
+    "chat.button.emoji": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emoji"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emoji"
           }
         }
       }
@@ -2445,6 +2700,737 @@
           "stringUnit": {
             "state": "translated",
             "value": "Taraflardan biri Simülatör konumu kullanıyorsa mesafe hatalı olabilir. Gerçekçi test için Simülatörde Custom Location ayarlayın."
+          }
+        }
+      }
+    },
+    "chat.sidebar.item.splash_screen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show splash screen"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açılış ekranını göster"
+          }
+        }
+      }
+    },
+    "pairing.unpair.confirm.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove pairing"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleşmeyi kaldır"
+          }
+        }
+      }
+    },
+    "pairing.unpair.confirm.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Do you want to keep your last 2000 messages with this partner in encrypted local archive before unpairing?"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakla seçeneği son 2000 mesajı cihazında şifreli arşivler. Eşleşmeyi kaldırmadan önce bu mesajları saklamak ister misiniz?"
+          }
+        }
+      }
+    },
+    "pairing.unpair.action.keep_and_unpair": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep and unpair"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakla ve kaldır"
+          }
+        }
+      }
+    },
+    "pairing.unpair.action.delete_and_unpair": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete and unpair"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saklama, kaldır"
+          }
+        }
+      }
+    },
+    "pairing.unpair.notice.remote_delete_failed_but_unpaired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing was removed, but cloud message cleanup failed: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleşme kaldırıldı ancak bulut mesaj temizliği başarısız oldu: %@"
+          }
+        }
+      }
+    },
+    "pairing.unpair.error.archive_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not archive messages. Pairing was not removed to prevent data loss."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesajlar arşivlenemedi. Veri kaybını önlemek için eşleşme kaldırılmadı."
+          }
+        }
+      }
+    },
+    "pairing.unpair.error.archive_load_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archived messages could not be loaded."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arşivlenmiş mesajlar yüklenemedi."
+          }
+        }
+      }
+    },
+    "pairing.unpair.notice.no_messages_to_archive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No messages were found to archive."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arşivlenecek mesaj bulunamadı."
+          }
+        }
+      }
+    },
+    "pairing.unpair.error.remote_delete_required": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Messages could not be deleted from cloud. Pairing was not removed. Please try again."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesajlar buluttan silinemedi. Eşleşme kaldırılmadı, lütfen tekrar deneyin."
+          }
+        }
+      }
+    },
+    "pairing.button.send_pair_request": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send Pair Request"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleşme İsteği Gönder"
+          }
+        }
+      }
+    },
+    "pairing.requests.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requests"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İstekler"
+          }
+        }
+      }
+    },
+    "pairing.requests.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No incoming requests yet."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Henüz gelen istek yok."
+          }
+        }
+      }
+    },
+    "pairing.request.type.pair": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair Request"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleşme İsteği"
+          }
+        }
+      }
+    },
+    "pairing.request.type.unpair": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unpair Request"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleşmeyi Kaldırma İsteği"
+          }
+        }
+      }
+    },
+    "pairing.request.action.accept": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accept"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kabul Et"
+          }
+        }
+      }
+    },
+    "pairing.request.action.reject": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reject"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reddet"
+          }
+        }
+      }
+    },
+    "pairing.request.action.accept_keep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accept + Keep"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kabul Et + Sakla"
+          }
+        }
+      }
+    },
+    "pairing.request.action.accept_delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accept + Delete"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kabul Et + Saklama"
+          }
+        }
+      }
+    },
+    "pairing.request.action.send_unpair_keep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep and Send Request"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakla ve İstek Gönder"
+          }
+        }
+      }
+    },
+    "pairing.request.action.send_unpair_delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Do Not Keep and Send Request"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saklama ve İstek Gönder"
+          }
+        }
+      }
+    },
+    "pairing.request.error.user_already_paired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You already have a partner. You cannot send a new pairing request."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaten bir partnerin var. Yeni eşleşme isteği gönderemezsin."
+          }
+        }
+      }
+    },
+    "pairing.request.error.target_already_paired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This user already has a partner. Pair request cannot be sent."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu kullanıcının zaten partneri var. Eşleşme isteği gönderilemez."
+          }
+        }
+      }
+    },
+    "pairing.request.error.expired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This request has expired."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu isteğin süresi doldu."
+          }
+        }
+      }
+    },
+    "pairing.request.error.not_pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This request is no longer pending."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu istek artık beklemede değil."
+          }
+        }
+      }
+    },
+    "pairing.request.error.duplicate_pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There is already a pending request between you and this user."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seninle bu kullanıcı arasında zaten bekleyen bir istek var."
+          }
+        }
+      }
+    },
+    "pairing.request.error.not_mutual": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mutual pairing is not active."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karşılıklı eşleşme aktif değil."
+          }
+        }
+      }
+    },
+    "pairing.request.error.permission_denied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You do not have permission for this request operation."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu istek işlemi için yetkin yok."
+          }
+        }
+      }
+    },
+    "pairing.request.error.generic_invalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Request data is invalid."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İstek verisi geçersiz."
+          }
+        }
+      }
+    },
+    "pairing.request.notice.keep_last_2000": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If you choose to keep, the last 2000 messages are archived securely on your device."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakla seçeneğinde son 2000 mesaj cihazında şifreli olarak arşivlenir."
+          }
+        }
+      }
+    },
+    "pairing.request.notice.pair_sent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair request sent. Waiting for your partner's response."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleşme isteği gönderildi. Partner yanıtı bekleniyor."
+          }
+        }
+      }
+    },
+    "pairing.request.notice.unpair_sent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unpair request sent. Messages will not be deleted until your partner accepts."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleşmeyi kaldırma isteği gönderildi. Partner kabul etmeden mesajlar silinmez."
+          }
+        }
+      }
+    },
+    "pairing.request.notice.unpair_already_pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unpair request is already pending for this relationship."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu ilişki için zaten bekleyen bir kaldırma isteği var."
+          }
+        }
+      }
+    },
+    "pairing.request.notice.unpair_accepted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unpair request accepted. Pairing removed."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleşme kaldırma isteği kabul edildi. Eşleşme sonlandırıldı."
+          }
+        }
+      }
+    },
+    "pairing.request.notice.accepted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Request accepted."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İstek kabul edildi."
+          }
+        }
+      }
+    },
+    "pairing.request.notice.rejected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Request rejected."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İstek reddedildi."
+          }
+        }
+      }
+    },
+    "pairing.request.alert.pair.title_format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ sent a pairing request"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ sana eşleşme isteği gönderdi"
+          }
+        }
+      }
+    },
+    "pairing.request.alert.pair.message_format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair code: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleşme kodu: %@"
+          }
+        }
+      }
+    },
+    "pairing.request.alert.unpair.title_format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wants to remove pairing"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ eşleşmeyi kaldırmak istiyor"
+          }
+        }
+      }
+    },
+    "pairing.request.cell.subtitle_format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ • Code: %@ • %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ • Kod: %@ • %@"
+          }
+        }
+      }
+    },
+    "pairing.status.request_processing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Processing request..."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İstek işleniyor..."
+          }
+        }
+      }
+    },
+    "pairing.status.unpair_request_sending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sending unpair request..."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleşmeyi kaldırma isteği gönderiliyor..."
+          }
+        }
+      }
+    },
+    "pairing.request.error.function_not_deployed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server function is not deployed yet. Please deploy Firebase Functions and try again."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sunucu fonksiyonu henüz deploy edilmemiş. Firebase Functions deploy edip tekrar deneyin."
           }
         }
       }

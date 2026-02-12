@@ -8,7 +8,9 @@ final class ScratchRevealView: UIView {
     private let revealPath = UIBezierPath()
 
     private var scratchHits = 0
+    private var isFullyRevealed = false
     private let maxHitsToReveal = 42
+    var onFullyRevealed: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -26,9 +28,24 @@ final class ScratchRevealView: UIView {
 
     func reset() {
         scratchHits = 0
+        isFullyRevealed = false
         revealPath.removeAllPoints()
         refreshMaskPathIfNeeded()
         coverView.alpha = 1.0
+    }
+
+    func revealPermanently(animated: Bool) {
+        isFullyRevealed = true
+        scratchHits = maxHitsToReveal
+        let applyReveal = {
+            self.coverView.alpha = 0
+        }
+
+        if animated {
+            UIView.animate(withDuration: 0.2, animations: applyReveal)
+        } else {
+            applyReveal()
+        }
     }
 
     private func setupUI() {
@@ -68,6 +85,8 @@ final class ScratchRevealView: UIView {
     }
 
     private func scratch(at point: CGPoint) {
+        guard !isFullyRevealed else { return }
+
         let radius: CGFloat = 17
         let ovalRect = CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)
         revealPath.append(UIBezierPath(ovalIn: ovalRect))
@@ -75,9 +94,13 @@ final class ScratchRevealView: UIView {
         refreshMaskPathIfNeeded()
 
         if scratchHits >= maxHitsToReveal {
-            UIView.animate(withDuration: 0.2) {
+            isFullyRevealed = true
+            UIView.animate(withDuration: 0.2, animations: {
                 self.coverView.alpha = 0
+            }, completion: { _ in
+                self.onFullyRevealed?()
             }
+            )
         }
     }
 

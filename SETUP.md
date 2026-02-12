@@ -17,13 +17,15 @@ Add these packages in Xcode (`File > Add Package Dependencies`):
    - Realtime Database
    - Cloud Messaging
 3. Publish the rules from `/Users/gladius/Desktop/SoulMate/database.rules.json`.
-4. Replace placeholder key in `/Users/gladius/Desktop/SoulMate/SoulMate/AppDelegate.swift`:
-   - `Giphy.configure(apiKey: "REPLACE_WITH_GIPHY_API_KEY")`
+4. Giphy API key kontrolü:
+   - `/Users/gladius/Desktop/SoulMate/SoulMate/Core/Files/AppDelegate.swift` içinde
+   - `Giphy.configure(apiKey: "...")`
 
 ## 3) App Groups
 The app target already contains `/Users/gladius/Desktop/SoulMate/SoulMate/SoulMate.entitlements` with:
 
 - `group.com.MahmutAKIN.SoulMate`
+- `BQH8W6X63R.com.MahmutAKIN.SoulMate.shared` (Keychain Sharing)
 
 Enable the same App Group in all extension targets (widget + notification service).
 
@@ -37,10 +39,14 @@ Enable the same App Group in all extension targets (widget + notification servic
 1. Create a Notification Service Extension target.
 2. Add `/Users/gladius/Desktop/SoulMate/SoulMateNotificationService/NotificationService.swift` to that target.
 3. Add App Group capability to the extension target.
+4. Add Keychain Sharing capability to the extension target.
 4. Configure FCM payload with encrypted fields:
    - `enc_body`
    - `sender_id`
    - `chat_id`
+
+Detaylı push kurulumu için:
+- `/Users/gladius/Desktop/SoulMate/PUSH_NOTIFICATION_SETUP.md`
 
 ## 6) URL Scheme (Optional)
 For Live Activity deep links (`soulmate://chat`), add the URL scheme in target settings.

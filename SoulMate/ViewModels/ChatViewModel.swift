@@ -24,6 +24,7 @@ final class ChatViewModel {
     var onDistanceUpdated: ((String?) -> Void)?
     var onError: ((String) -> Void)?
     var onHeartbeatReceived: (() -> Void)?
+    var onPairingInvalidated: (() -> Void)?
 
     private(set) var messages: [ChatMessage] = []
     private(set) var state: ScreenState = .idle {
@@ -32,6 +33,7 @@ final class ChatViewModel {
 
     private let firebase: FirebaseManager
     private let encryption: EncryptionService
+    private let archiveService: ConversationArchiveService
     private let locationService: LocationSharingService
     private let jsonEncoder = JSONEncoder()
     private let jsonDecoder = JSONDecoder()
@@ -42,6 +44,7 @@ final class ChatViewModel {
 
     private var messageObserver: FirebaseObservationToken?
     private var heartbeatObserver: FirebaseObservationToken?
+    private var ownProfileObserver: FirebaseObservationToken?
     private var profileObserver: FirebaseObservationToken?
     private var moodObserver: FirebaseObservationToken?
     private var pairingTimeoutWorkItem: DispatchWorkItem?
@@ -50,6 +53,7 @@ final class ChatViewModel {
     private var isLoadingHistory = false
     private var hasReachedHistoryStart = false
     private var activeChatID: String?
+    private var localArchiveLoadedChatID: String?
     private var lastUploadedLocation: CLLocation?
     private var lastLocationUploadDate: Date?
     private var didReportLocationPermissionDenied = false
@@ -68,10 +72,12 @@ final class ChatViewModel {
     init(
         firebase: FirebaseManager = .shared,
         encryption: EncryptionService = .shared,
+        archiveService: ConversationArchiveService = .shared,
         locationService: LocationSharingService = LocationSharingService()
     ) {
         self.firebase = firebase
         self.encryption = encryption
+        self.archiveService = archiveService
         self.locationService = locationService
 
         self.locationService.onLocationUpdate = { [weak self] location in
@@ -285,6 +291,14 @@ final class ChatViewModel {
         }
     }
 
+    func handleMemoryPressure() {
+        let didTrim = trimMessagesIfNeeded(keepingLast: AppConfiguration.ChatPerformance.maxInMemoryMessagesOnPressure)
+        guard didTrim else { return }
+        notifyOnMain {
+            self.onMessagesUpdated?()
+        }
+    }
+
     func numberOfMessages() -> Int {
         messages.count
     }
@@ -306,29 +320,28 @@ final class ChatViewModel {
     private func attachSession(uid: String) {
         if currentUserID != uid {
             resetMessageState(notify: true)
+            localArchiveLoadedChatID = nil
         }
         currentUserID = uid
         state = .loading
+
+        ownProfileObserver?.cancel()
+        ownProfileObserver = firebase.observeUserProfile(
+            uid: uid,
+            onChange: { [weak self] profile in
+                self?.handleOwnProfileChange(profile)
+            },
+            onCancelled: { [weak self] error in
+                self?.handleObserverCancellation(error)
+            }
+        )
 
         firebase.fetchUserProfile(uid: uid) { [weak self] result in
             guard let self else { return }
 
             switch result {
             case .success(let profile):
-                self.notifyOnMain {
-                    self.onPairingCodeUpdated?(profile.sixDigitUID)
-                }
-
-                if let partnerID = profile.partnerID, !partnerID.isEmpty {
-                    self.bindPartner(partnerUID: partnerID)
-                } else {
-                    self.partnerUserID = nil
-                    self.activeChatID = nil
-                    self.resetMessageState(notify: true)
-                    self.stopLocationSharing(resetDistance: true)
-                    self.cancelPairingTimeout()
-                    self.state = .unpaired
-                }
+                self.handleOwnProfileChange(profile)
 
             case .failure(let error):
                 self.cancelPairingTimeout()
@@ -337,6 +350,72 @@ final class ChatViewModel {
                 self.emitError(error)
             }
         }
+    }
+
+    private func handleOwnProfileChange(_ profile: UserPairProfile) {
+        notifyOnMain {
+            self.onPairingCodeUpdated?(profile.sixDigitUID)
+        }
+
+        let partnerID = profile.partnerID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let partnerID, !partnerID.isEmpty else {
+            if partnerUserID == nil && state == .unpaired {
+                return
+            }
+            invalidateCurrentPairing(notifyUI: true, shouldRouteToPairing: true)
+            return
+        }
+
+        if partnerUserID != partnerID {
+            bindPartner(partnerUID: partnerID)
+        } else if state == .unpaired {
+            state = .loading
+            bindPartner(partnerUID: partnerID)
+        }
+    }
+
+    private func invalidateCurrentPairing(notifyUI: Bool, shouldRouteToPairing: Bool) {
+        let previousState = state
+        let previousPartner = partnerUserID
+        let hadActivePairing = previousPartner != nil
+
+        messageObserver?.cancel()
+        heartbeatObserver?.cancel()
+        profileObserver?.cancel()
+        moodObserver?.cancel()
+        messageObserver = nil
+        heartbeatObserver = nil
+        profileObserver = nil
+        moodObserver = nil
+
+        if let previousPartner {
+            encryption.clearSharedKey(partnerUID: previousPartner)
+        }
+
+        partnerUserID = nil
+        activeChatID = nil
+        localArchiveLoadedChatID = nil
+
+        resetMessageState(notify: notifyUI)
+        stopLocationSharing(resetDistance: true)
+        cancelPairingTimeout()
+
+        if state != .unpaired {
+            state = .unpaired
+        }
+
+        guard shouldRouteToPairing else { return }
+        let shouldNotify = hadActivePairing || previousState == .ready || previousState == .waitingForMutualPairing
+        guard shouldNotify else { return }
+        notifyOnMain {
+            self.onPairingInvalidated?()
+        }
+    }
+
+    private func handleObserverCancellation(_ error: Error) {
+        guard state != .unpaired else { return }
+        emitError(error)
+        invalidateCurrentPairing(notifyUI: true, shouldRouteToPairing: true)
     }
 
     private func bindPartner(partnerUID: String) {
@@ -350,44 +429,60 @@ final class ChatViewModel {
         partnerUserID = partnerUID
         profileObserver?.cancel()
 
-        profileObserver = firebase.observeUserProfile(uid: partnerUID) { [weak self] partnerProfile in
-            guard let self else { return }
+        profileObserver = firebase.observeUserProfile(
+            uid: partnerUID,
+            onChange: { [weak self] partnerProfile in
+                guard let self else { return }
 
-            guard let publicKey = partnerProfile.publicKey else {
-                self.messageObserver?.cancel()
-                self.heartbeatObserver?.cancel()
-                self.stopLocationSharing(resetDistance: true)
-                self.state = .waitingForMutualPairing
-                self.notifyPairingStatus(L10n.t("chatvm.status.waiting_partner_key"))
-                self.schedulePairingTimeout()
-                return
+                guard let publicKey = partnerProfile.publicKey else {
+                    self.messageObserver?.cancel()
+                    self.heartbeatObserver?.cancel()
+                    self.messageObserver = nil
+                    self.heartbeatObserver = nil
+                    self.activeChatID = nil
+                    self.localArchiveLoadedChatID = nil
+                    self.resetMessageState(notify: true)
+                    self.stopLocationSharing(resetDistance: true)
+                    self.state = .waitingForMutualPairing
+                    self.notifyPairingStatus(L10n.t("chatvm.status.waiting_partner_key"))
+                    self.schedulePairingTimeout()
+                    return
+                }
+
+                do {
+                    try self.encryption.establishSharedKey(with: publicKey, partnerUID: partnerUID)
+                } catch {
+                    self.emitError(error)
+                    return
+                }
+
+                let mutual = partnerProfile.partnerID == currentUserID
+                self.state = mutual ? .ready : .waitingForMutualPairing
+
+                if mutual {
+                    self.cancelPairingTimeout()
+                    self.notifyPairingStatus(L10n.t("chatvm.status.paired"))
+                    self.observeChatIfReady()
+                    self.observePartnerMoodIfReady()
+                    LiveActivityManager.shared.startIfNeeded(partnerName: L10n.t("chatvm.live.partner_name"))
+                    self.handlePartnerLocationCiphertext(partnerProfile.locationCiphertext)
+                } else {
+                    self.messageObserver?.cancel()
+                    self.heartbeatObserver?.cancel()
+                    self.messageObserver = nil
+                    self.heartbeatObserver = nil
+                    self.activeChatID = nil
+                    self.localArchiveLoadedChatID = nil
+                    self.resetMessageState(notify: true)
+                    self.stopLocationSharing(resetDistance: true)
+                    self.notifyPairingStatus(L10n.t("chatvm.status.waiting_mutual"))
+                    self.schedulePairingTimeout()
+                }
+            },
+            onCancelled: { [weak self] error in
+                self?.handleObserverCancellation(error)
             }
-
-            do {
-                try self.encryption.establishSharedKey(with: publicKey, partnerUID: partnerUID)
-            } catch {
-                self.emitError(error)
-                return
-            }
-
-            let mutual = partnerProfile.partnerID == currentUserID
-            self.state = mutual ? .ready : .waitingForMutualPairing
-
-            if mutual {
-                self.cancelPairingTimeout()
-                self.notifyPairingStatus(L10n.t("chatvm.status.paired"))
-                self.observeChatIfReady()
-                self.observePartnerMoodIfReady()
-                LiveActivityManager.shared.startIfNeeded(partnerName: L10n.t("chatvm.live.partner_name"))
-                self.handlePartnerLocationCiphertext(partnerProfile.locationCiphertext)
-            } else {
-                self.messageObserver?.cancel()
-                self.heartbeatObserver?.cancel()
-                self.stopLocationSharing(resetDistance: true)
-                self.notifyPairingStatus(L10n.t("chatvm.status.waiting_mutual"))
-                self.schedulePairingTimeout()
-            }
-        }
+        )
     }
 
     private func observeChatIfReady() {
@@ -400,18 +495,27 @@ final class ChatViewModel {
         let chatID = FirebaseManager.chatID(for: currentUserID, and: partnerUserID)
         if activeChatID != chatID {
             resetMessageState(notify: true)
+            localArchiveLoadedChatID = nil
         }
         activeChatID = chatID
 
+        restoreArchivedConversationIfAvailable(chatID: chatID, currentUserID: currentUserID, partnerUserID: partnerUserID)
         bootstrapRecentMessagesAndListen(chatID: chatID, currentUserID: currentUserID, partnerUserID: partnerUserID)
         startLocationSharingIfNeeded()
 
-        heartbeatObserver = firebase.observeHeartbeat(chatID: chatID, currentUserID: currentUserID) { [weak self] in
-            self?.notifyOnMain {
-                self?.onHeartbeatReceived?()
+        heartbeatObserver = firebase.observeHeartbeat(
+            chatID: chatID,
+            currentUserID: currentUserID,
+            onHeartbeat: { [weak self] in
+                self?.notifyOnMain {
+                    self?.onHeartbeatReceived?()
+                }
+                HapticEngine.playHeartbeatPattern()
+            },
+            onCancelled: { [weak self] error in
+                self?.handleObserverCancellation(error)
             }
-            HapticEngine.playHeartbeatPattern()
-        }
+        )
     }
 
     private func bootstrapRecentMessagesAndListen(chatID: String, currentUserID: String, partnerUserID: String) {
@@ -424,16 +528,54 @@ final class ChatViewModel {
             case .success(let envelopes):
                 self.consumeInitialMessageBatch(envelopes, currentUserID: currentUserID, partnerUserID: partnerUserID)
                 let startAt = envelopes.last?.sentAt
-                self.messageObserver = self.firebase.observeEncryptedMessages(chatID: chatID, startingAt: startAt) { [weak self] envelope in
-                    self?.handleIncomingEnvelope(envelope)
-                }
+                self.messageObserver = self.firebase.observeEncryptedMessages(
+                    chatID: chatID,
+                    startingAt: startAt,
+                    onMessage: { [weak self] envelope in
+                        self?.handleIncomingEnvelope(envelope)
+                    },
+                    onCancelled: { [weak self] error in
+                        self?.handleObserverCancellation(error)
+                    }
+                )
 
             case .failure(let error):
                 self.emitError(error)
-                self.messageObserver = self.firebase.observeEncryptedMessages(chatID: chatID, startingAt: nil) { [weak self] envelope in
-                    self?.handleIncomingEnvelope(envelope)
+                self.messageObserver = self.firebase.observeEncryptedMessages(
+                    chatID: chatID,
+                    startingAt: nil,
+                    onMessage: { [weak self] envelope in
+                        self?.handleIncomingEnvelope(envelope)
+                    },
+                    onCancelled: { [weak self] error in
+                        self?.handleObserverCancellation(error)
+                    }
+                )
+            }
+        }
+    }
+
+    private func restoreArchivedConversationIfAvailable(chatID: String, currentUserID: String, partnerUserID: String) {
+        guard localArchiveLoadedChatID != chatID else { return }
+        localArchiveLoadedChatID = chatID
+
+        do {
+            let archivedMessages = try archiveService.loadConversation(currentUID: currentUserID, partnerUID: partnerUserID)
+            guard !archivedMessages.isEmpty else { return }
+
+            var inserted = 0
+            for message in archivedMessages {
+                if appendMessageIfNeeded(message, notify: false) {
+                    inserted += 1
                 }
             }
+
+            guard inserted > 0 else { return }
+            notifyOnMain {
+                self.onMessagesUpdated?()
+            }
+        } catch {
+            emitError(FirebaseManagerError.generic(L10n.t("pairing.unpair.error.archive_load_failed")))
         }
     }
 
@@ -441,28 +583,34 @@ final class ChatViewModel {
         guard let partnerUserID else { return }
 
         moodObserver?.cancel()
-        moodObserver = firebase.observeMoodCiphertext(uid: partnerUserID) { [weak self] ciphertext in
-            guard let self,
-                  let ciphertext,
-                  let partnerUserID = self.partnerUserID else { return }
+        moodObserver = firebase.observeMoodCiphertext(
+            uid: partnerUserID,
+            onChange: { [weak self] ciphertext in
+                guard let self,
+                      let ciphertext,
+                      let partnerUserID = self.partnerUserID else { return }
 
-            do {
-                let decrypted = try self.encryption.decrypt(ciphertext, from: partnerUserID)
-                guard let moodRaw = String(data: decrypted, encoding: .utf8),
-                      let mood = MoodStatus(rawValue: moodRaw) else {
-                    return
-                }
+                do {
+                    let decrypted = try self.encryption.decrypt(ciphertext, from: partnerUserID)
+                    guard let moodRaw = String(data: decrypted, encoding: .utf8),
+                          let mood = MoodStatus(rawValue: moodRaw) else {
+                        return
+                    }
 
-                self.persistWidgetMood(mood.title)
-                self.latestPartnerMoodTitle = mood.title
-                LiveActivityManager.shared.update(text: L10n.f("chatvm.live.mood_format", mood.title), mood: mood.title)
-                self.notifyOnMain {
-                    self.onPartnerMoodUpdated?(mood)
+                    self.persistWidgetMood(mood.title)
+                    self.latestPartnerMoodTitle = mood.title
+                    LiveActivityManager.shared.update(text: L10n.f("chatvm.live.mood_format", mood.title), mood: mood.title)
+                    self.notifyOnMain {
+                        self.onPartnerMoodUpdated?(mood)
+                    }
+                } catch {
+                    self.emitError(error)
                 }
-            } catch {
-                self.emitError(error)
+            },
+            onCancelled: { [weak self] error in
+                self?.handleObserverCancellation(error)
             }
-        }
+        )
     }
 
     private func consumeInitialMessageBatch(
@@ -636,6 +784,7 @@ final class ChatViewModel {
             let insertionIndex = messages.firstIndex(where: { $0.sentAt > message.sentAt }) ?? messages.endIndex
             messages.insert(message, at: insertionIndex)
         }
+        _ = trimMessagesIfNeeded(keepingLast: AppConfiguration.ChatPerformance.maxInMemoryMessages)
         oldestLoadedSentAt = messages.first?.sentAt.timeIntervalSince1970
 
         if notify {
@@ -657,6 +806,21 @@ final class ChatViewModel {
         notifyOnMain {
             self.onMessagesUpdated?()
         }
+    }
+
+    @discardableResult
+    private func trimMessagesIfNeeded(keepingLast limit: Int) -> Bool {
+        guard limit > 0, messages.count > limit else { return false }
+        let removeCount = messages.count - limit
+        let removedMessages = messages.prefix(removeCount)
+        messages.removeFirst(removeCount)
+
+        for message in removedMessages {
+            loadedMessageIDs.remove(message.id)
+        }
+
+        oldestLoadedSentAt = messages.first?.sentAt.timeIntervalSince1970
+        return true
     }
 
     private func decodeMessage(from envelope: EncryptedMessageEnvelope, partnerUserID: String) throws -> ChatMessage {
@@ -855,10 +1019,18 @@ final class ChatViewModel {
     }
 
     private func stopObservers() {
+        ownProfileObserver?.cancel()
         messageObserver?.cancel()
         heartbeatObserver?.cancel()
         profileObserver?.cancel()
         moodObserver?.cancel()
+        ownProfileObserver = nil
+        messageObserver = nil
+        heartbeatObserver = nil
+        profileObserver = nil
+        moodObserver = nil
+        activeChatID = nil
+        localArchiveLoadedChatID = nil
         stopLocationSharing(resetDistance: false)
         cancelPairingTimeout()
     }

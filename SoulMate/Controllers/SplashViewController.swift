@@ -3,8 +3,8 @@ import UIKit
 final class SplashViewController: UIViewController {
     var onFinished: (() -> Void)?
 
-    private let totalDuration: TimeInterval = 1.0
-    private let travelDuration: TimeInterval = 1.25
+    private let totalDuration: TimeInterval = 0.75
+    private let travelDuration: TimeInterval = 1.0
 
     private let backgroundView = UIView()
     private let backgroundGradientLayer = CAGradientLayer()
