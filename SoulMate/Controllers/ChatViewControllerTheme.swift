@@ -1,5 +1,5 @@
 //
-//  AuthViewController.swift
+//  ChatViewControllerTheme.swift
 //  SoulMate
 //
 //  Created by MAHMUT AKIN on 02/02/2026.
