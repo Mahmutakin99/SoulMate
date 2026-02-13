@@ -39,6 +39,10 @@
         ".validate": "$code.matches(/^[0-9]{6}$/) && newData.isString() && newData.val() === auth.uid"
       }
     },
+    "sessionLocks": {
+      ".read": false,
+      ".write": false
+    },
     "chats": {
       "$chatId": {
         ".read": "auth != null && root.child('users').child(auth.uid).child('partnerID').val() != null && root.child('users').child(root.child('users').child(auth.uid).child('partnerID').val()).child('partnerID').val() === auth.uid && ($chatId === auth.uid + '_' + root.child('users').child(auth.uid).child('partnerID').val() || $chatId === root.child('users').child(auth.uid).child('partnerID').val() + '_' + auth.uid)",

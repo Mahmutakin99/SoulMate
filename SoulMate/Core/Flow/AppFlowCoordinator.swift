@@ -1,3 +1,10 @@
+//
+//  AuthViewController.swift
+//  SoulMate
+//
+//  Created by MAHMUT AKIN on 02/02/2026.
+//
+
 import UIKit
 
 final class AppFlowCoordinator {
@@ -21,6 +28,26 @@ final class AppFlowCoordinator {
     }
 
     func routeOnLaunch(animated: Bool = false) {
+        firebase.validateOrAcquireSessionForCurrentUser { [weak self] validation in
+            DispatchQueue.main.async {
+                switch validation {
+                case .success:
+                    self?.resolveAndRouteLaunchState(animated: animated)
+                case .failure(let error):
+                    let message: String
+                    if let managerError = error as? FirebaseManagerError,
+                       case .sessionLockedElsewhere = managerError {
+                        message = L10n.t("auth.notice.launch_session_conflict")
+                    } else {
+                        message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    }
+                    self?.showAuth(animated: animated, initialNoticeMessage: message)
+                }
+            }
+        }
+    }
+
+    private func resolveAndRouteLaunchState(animated: Bool) {
         firebase.resolveLaunchState { [weak self] result in
             DispatchQueue.main.async {
                 switch result {
@@ -31,14 +58,15 @@ final class AppFlowCoordinator {
                     #if DEBUG
                     print("Launch state resolution failed: \(message)")
                     #endif
-                    self?.showAuth(animated: animated)
+                    self?.showAuth(animated: animated, initialNoticeMessage: message)
                 }
             }
         }
     }
 
-    func showAuth(animated: Bool = false) {
+    func showAuth(animated: Bool = false, initialNoticeMessage: String? = nil) {
         let controller = AuthViewController()
+        controller.initialNoticeMessage = initialNoticeMessage
         controller.onAuthSuccess = { [weak self] in
             self?.routeOnLaunch(animated: true)
         }
@@ -65,15 +93,19 @@ final class AppFlowCoordinator {
     }
 
     func signOut() {
-        do {
-            try firebase.signOut()
-            showAuth(animated: true)
-        } catch {
-            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            #if DEBUG
-            print("Sign out failed: \(message)")
-            #endif
-            showAuth(animated: true)
+        firebase.signOutReleasingSession { [weak self] result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    self?.showAuth(animated: true)
+                case .failure(let error):
+                    let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    #if DEBUG
+                    print("Sign out failed: \(message)")
+                    #endif
+                    self?.presentTopAlert(message: message)
+                }
+            }
         }
     }
 
@@ -117,6 +149,20 @@ final class AppFlowCoordinator {
             firebase.requestPushAuthorizationIfNeeded()
             showChat(animated: animated)
         }
+    }
+
+    private func presentTopAlert(message: String) {
+        guard !message.isEmpty else { return }
+        guard let presenter = rootNavigationController?.topViewController else { return }
+        guard presenter.presentedViewController == nil else { return }
+
+        let alert = UIAlertController(
+            title: L10n.t("common.error_title"),
+            message: message,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: L10n.t("common.ok"), style: .default))
+        presenter.present(alert, animated: true)
     }
 
     private func showProfileCompletion(uid: String, animated: Bool) {

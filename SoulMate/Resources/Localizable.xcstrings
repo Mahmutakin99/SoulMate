@@ -3672,6 +3672,74 @@
           }
         }
       }
+    },
+    "auth.error.session_locked_elsewhere": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account is already active on another device."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu hesap zaten başka bir cihazda açık."
+          }
+        }
+      }
+    },
+    "auth.error.logout_requires_network": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign out requires internet connection. Please reconnect and try again."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çıkış yapmak için internet bağlantısı gerekiyor. Lütfen yeniden bağlanıp tekrar deneyin."
+          }
+        }
+      }
+    },
+    "auth.error.session_validation_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session verification failed. Please try signing in again."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum doğrulaması başarısız oldu. Lütfen tekrar giriş yapın."
+          }
+        }
+      }
+    },
+    "auth.notice.launch_session_conflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your account is active on another device. Sign out there first to continue."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hesabınız başka bir cihazda açık. Devam etmek için önce o cihazdan çıkış yapın."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

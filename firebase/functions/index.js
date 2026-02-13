@@ -60,6 +60,20 @@ function requestChatID(uidA, uidB) {
   return [uidA, uidB].sort().join("_");
 }
 
+function readInstallationID(data) {
+  return normalizedString(data?.installationID);
+}
+
+function readAppVersion(data) {
+  const value = normalizedString(data?.appVersion);
+  return value ? value.slice(0, 32) : "unknown";
+}
+
+function readDeviceName(data) {
+  const value = normalizedString(data?.deviceName);
+  return value ? value.slice(0, 80) : "unknown-device";
+}
+
 async function loadUserProfile(uid) {
   const snap = await admin.database().ref(`/users/${uid}`).get();
   return snap.val() || {};
@@ -245,6 +259,118 @@ exports.cleanupExpiredTransientMessages = onSchedule(
       deletedMessages: deleteCount,
       cutoff
     });
+  }
+);
+
+exports.acquireSessionLock = onCall(
+  { region: CALLABLE_REGION },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "auth_required");
+    }
+
+    const installationID = readInstallationID(request.data);
+    if (!installationID) {
+      throw new HttpsError("invalid-argument", "session_lock_invalid_installation");
+    }
+
+    const lockRef = admin.database().ref(`/sessionLocks/${uid}`);
+    const now = nowSeconds();
+    const appVersion = readAppVersion(request.data);
+    const deviceName = readDeviceName(request.data);
+
+    let txResult;
+    try {
+      txResult = await lockRef.transaction((current) => {
+        const owner = normalizedString(current?.installationID);
+        if (owner && owner !== installationID) {
+          return;
+        }
+
+        const acquiredAt = Number(current?.acquiredAt || 0) > 0
+          ? Number(current.acquiredAt)
+          : now;
+
+        return {
+          installationID,
+          platform: "ios",
+          deviceName,
+          appVersion,
+          acquiredAt,
+          updatedAt: now
+        };
+      }, undefined, false);
+    } catch (error) {
+      logger.error("Session lock acquire failed.", {
+        uid,
+        installationID,
+        errorMessage: error?.message || String(error)
+      });
+      throw new HttpsError("internal", "session_lock_acquire_failed");
+    }
+
+    if (!txResult.committed) {
+      throw new HttpsError("failed-precondition", "session_locked_on_another_device");
+    }
+
+    return {
+      success: true,
+      uid,
+      installationID,
+      updatedAt: now
+    };
+  }
+);
+
+exports.releaseSessionLock = onCall(
+  { region: CALLABLE_REGION },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "auth_required");
+    }
+
+    const installationID = readInstallationID(request.data);
+    if (!installationID) {
+      throw new HttpsError("invalid-argument", "session_lock_invalid_installation");
+    }
+
+    const lockRef = admin.database().ref(`/sessionLocks/${uid}`);
+    const snap = await lockRef.get();
+    if (!snap.exists()) {
+      return {
+        success: true,
+        released: true,
+        alreadyReleased: true
+      };
+    }
+
+    const current = snap.val() || {};
+    const owner = normalizedString(current.installationID);
+    if (owner && owner !== installationID) {
+      return {
+        success: true,
+        released: false,
+        reason: "session_lock_invalid_installation"
+      };
+    }
+
+    try {
+      await lockRef.remove();
+    } catch (error) {
+      logger.error("Session lock release failed.", {
+        uid,
+        installationID,
+        errorMessage: error?.message || String(error)
+      });
+      throw new HttpsError("internal", "session_lock_release_failed");
+    }
+
+    return {
+      success: true,
+      released: true
+    };
   }
 );
 

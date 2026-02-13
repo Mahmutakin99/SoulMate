@@ -1,3 +1,10 @@
+//
+//  AuthViewController.swift
+//  SoulMate
+//
+//  Created by MAHMUT AKIN on 02/02/2026.
+//
+
 import Foundation
 
 enum AppConfiguration {
@@ -8,6 +15,7 @@ enum AppConfiguration {
     enum DatabasePath {
         static let users = "users"
         static let pairCodes = "pairCodes"
+        static let sessionLocks = "sessionLocks"
         static let chats = "chats"
         static let events = "events"
         static let relationshipRequests = "relationshipRequests"
@@ -56,5 +64,10 @@ enum AppConfiguration {
     enum Request {
         static let expirySeconds: TimeInterval = 24 * 60 * 60
         static let maxInboxItems: UInt = 50
+    }
+
+    enum Session {
+        static let installationIDAccount = "session.installation_id"
+        static let lockCallTimeoutSeconds: TimeInterval = 12
     }
 }

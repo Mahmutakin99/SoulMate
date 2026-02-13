@@ -1,0 +1,316 @@
+//
+//  AuthViewController.swift
+//  SoulMate
+//
+//  Created by MAHMUT AKIN on 02/02/2026.
+//
+
+import Foundation
+#if canImport(FirebaseAuth)
+import FirebaseAuth
+#endif
+#if canImport(FirebaseFunctions)
+import FirebaseFunctions
+#endif
+#if canImport(UIKit)
+import UIKit
+#endif
+
+extension FirebaseManager {
+    func currentUserID() -> String? {
+        #if canImport(FirebaseAuth)
+        return Auth.auth().currentUser?.uid
+        #else
+        return nil
+        #endif
+    }
+
+    func resolveLaunchState(completion: @escaping (Result<AppLaunchState, Error>) -> Void) {
+        guard let uid = currentUserID() else {
+            completion(.success(.unauthenticated))
+            return
+        }
+
+        fetchUserProfile(uid: uid) { [weak self] profileResult in
+            guard let self else { return }
+
+            switch profileResult {
+            case .failure(let error):
+                self.bootstrapUserIfNeeded(uid: uid) { bootstrapResult in
+                    switch bootstrapResult {
+                    case .failure:
+                        completion(.failure(error))
+                    case .success:
+                        self.resolveLaunchState(completion: completion)
+                    }
+                }
+
+            case .success(let profile):
+                let hasFirstName = !(profile.firstName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+                let hasLastName = !(profile.lastName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+
+                guard hasFirstName && hasLastName else {
+                    completion(.success(.needsProfileCompletion(uid: uid)))
+                    return
+                }
+
+                guard let partnerUID = profile.partnerID?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !partnerUID.isEmpty else {
+                    completion(.success(.needsPairing(uid: uid, sixDigitUID: profile.sixDigitUID)))
+                    return
+                }
+
+                self.fetchUserProfile(uid: partnerUID) { partnerResult in
+                    switch partnerResult {
+                    case .failure:
+                        completion(.success(.needsPairing(uid: uid, sixDigitUID: profile.sixDigitUID)))
+                    case .success(let partnerProfile):
+                        if partnerProfile.partnerID == uid {
+                            completion(.success(.readyForChat(uid: uid, partnerUID: partnerUID)))
+                        } else {
+                            completion(.success(.needsPairing(uid: uid, sixDigitUID: profile.sixDigitUID)))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func createAccount(
+        email: String,
+        password: String,
+        firstName: String,
+        lastName: String,
+        completion: @escaping (Result<String, Error>) -> Void
+    ) {
+        #if canImport(FirebaseAuth)
+        guard isFirebaseConfigured() else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("firebase.error.config_missing_plist"))))
+            return
+        }
+
+        Auth.auth().createUser(withEmail: email, password: password) { [weak self] result, error in
+            if let error {
+                completion(.failure(self?.mapAuthError(error, action: L10n.t("firebase.auth.action.sign_up")) ?? error))
+                return
+            }
+            guard let uid = result?.user.uid else {
+                completion(.failure(FirebaseManagerError.generic(L10n.t("firebase.error.create_account_failed"))))
+                return
+            }
+
+            self?.bootstrapUserIfNeeded(
+                uid: uid,
+                firstName: firstName,
+                lastName: lastName,
+                completion: { [weak self] bootstrapResult in
+                    switch bootstrapResult {
+                    case .success:
+                        self?.acquireSessionLock { lockResult in
+                            switch lockResult {
+                            case .success:
+                                completion(.success(uid))
+                            case .failure(let error):
+                                self?.forceLocalSignOutIgnoringSessionLock()
+                                completion(.failure(error))
+                            }
+                        }
+                    case .failure(let error):
+                        self?.forceLocalSignOutIgnoringSessionLock()
+                        completion(.failure(error))
+                    }
+                }
+            )
+        }
+        #else
+        completion(.failure(FirebaseManagerError.sdkMissing))
+        #endif
+    }
+
+    func signIn(email: String, password: String, completion: @escaping (Result<String, Error>) -> Void) {
+        #if canImport(FirebaseAuth)
+        guard isFirebaseConfigured() else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("firebase.error.config_missing_plist"))))
+            return
+        }
+
+        Auth.auth().signIn(withEmail: email, password: password) { [weak self] result, error in
+            if let error {
+                completion(.failure(self?.mapAuthError(error, action: L10n.t("firebase.auth.action.sign_in")) ?? error))
+                return
+            }
+            guard let uid = result?.user.uid else {
+                completion(.failure(FirebaseManagerError.generic(L10n.t("firebase.error.sign_in_failed"))))
+                return
+            }
+            self?.bootstrapUserIfNeeded(uid: uid) { [weak self] bootstrapResult in
+                switch bootstrapResult {
+                case .success:
+                    self?.acquireSessionLock { lockResult in
+                        switch lockResult {
+                        case .success:
+                            completion(.success(uid))
+                        case .failure(let error):
+                            self?.forceLocalSignOutIgnoringSessionLock()
+                            completion(.failure(error))
+                        }
+                    }
+                case .failure(let error):
+                    self?.forceLocalSignOutIgnoringSessionLock()
+                    completion(.failure(error))
+                }
+            }
+        }
+        #else
+        completion(.failure(FirebaseManagerError.sdkMissing))
+        #endif
+    }
+
+    func validateOrAcquireSessionForCurrentUser(completion: @escaping (Result<Void, Error>) -> Void) {
+        guard currentUserID() != nil else {
+            completion(.success(()))
+            return
+        }
+
+        acquireSessionLock { [weak self] result in
+            switch result {
+            case .success:
+                completion(.success(()))
+            case .failure(let error):
+                if let managerError = error as? FirebaseManagerError,
+                   case .sessionLockedElsewhere = managerError {
+                    self?.forceLocalSignOutIgnoringSessionLock()
+                }
+                completion(.failure(error))
+            }
+        }
+    }
+
+    func signOutReleasingSession(completion: @escaping (Result<Void, Error>) -> Void) {
+        #if canImport(FirebaseAuth)
+        guard currentUserID() != nil else {
+            completion(.success(()))
+            return
+        }
+
+        releaseSessionLock { [weak self] result in
+            switch result {
+            case .success(let released):
+                guard released else {
+                    completion(.failure(FirebaseManagerError.logoutRequiresNetwork))
+                    return
+                }
+
+                do {
+                    try Auth.auth().signOut()
+                    completion(.success(()))
+                } catch {
+                    completion(.failure(self?.mapAuthError(error, action: L10n.t("chat.menu.sign_out")) ?? error))
+                }
+            case .failure(let error):
+                completion(.failure(error))
+            }
+        }
+        #else
+        completion(.failure(FirebaseManagerError.sdkMissing))
+        #endif
+    }
+
+    func forceLocalSignOutIgnoringSessionLock() {
+        #if canImport(FirebaseAuth)
+        try? Auth.auth().signOut()
+        #endif
+    }
+
+    func signOut() throws {
+        #if canImport(FirebaseAuth)
+        try Auth.auth().signOut()
+        #else
+        throw FirebaseManagerError.sdkMissing
+        #endif
+    }
+
+    private func acquireSessionLock(completion: @escaping (Result<Void, Error>) -> Void) {
+        #if canImport(FirebaseFunctions)
+        guard isFirebaseConfigured() else {
+            completion(.failure(FirebaseManagerError.sessionValidationFailed))
+            return
+        }
+        guard currentUserID() != nil else {
+            completion(.failure(FirebaseManagerError.unauthenticated))
+            return
+        }
+
+        let callable = Functions.functions(region: "europe-west1").httpsCallable("acquireSessionLock")
+        callable.call(sessionLockPayload()) { [weak self] _, error in
+            if let error {
+                completion(.failure(self?.mapFunctionsError(error, action: "acquireSessionLock") ?? error))
+            } else {
+                completion(.success(()))
+            }
+        }
+        #else
+        completion(.failure(FirebaseManagerError.sessionValidationFailed))
+        #endif
+    }
+
+    private func releaseSessionLock(completion: @escaping (Result<Bool, Error>) -> Void) {
+        #if canImport(FirebaseFunctions)
+        guard isFirebaseConfigured() else {
+            completion(.failure(FirebaseManagerError.logoutRequiresNetwork))
+            return
+        }
+        guard currentUserID() != nil else {
+            completion(.success(true))
+            return
+        }
+
+        let callable = Functions.functions(region: "europe-west1").httpsCallable("releaseSessionLock")
+        callable.call(["installationID": InstallationIDProvider.shared.installationID()]) { [weak self] result, error in
+            if let error {
+                completion(.failure(self?.mapFunctionsError(error, action: "releaseSessionLock") ?? error))
+                return
+            }
+
+            let payload = result?.data as? [String: Any]
+            let released = payload?["released"] as? Bool ?? false
+            completion(.success(released))
+        }
+        #else
+        completion(.failure(FirebaseManagerError.logoutRequiresNetwork))
+        #endif
+    }
+
+    private func sessionLockPayload() -> [String: Any] {
+        [
+            "installationID": InstallationIDProvider.shared.installationID(),
+            "platform": "ios",
+            "deviceName": currentDeviceName(),
+            "appVersion": currentAppVersion()
+        ]
+    }
+
+    private func currentDeviceName() -> String {
+        #if canImport(UIKit)
+        return UIDevice.current.name
+        #else
+        return "unknown-device"
+        #endif
+    }
+
+    private func currentAppVersion() -> String {
+        let shortVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+
+        switch (shortVersion, build) {
+        case let (version?, build?) where !version.isEmpty && !build.isEmpty:
+            return "\(version) (\(build))"
+        case let (version?, _) where !version.isEmpty:
+            return version
+        case let (_, build?) where !build.isEmpty:
+            return build
+        default:
+            return "unknown"
+        }
+    }
+}

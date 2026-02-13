@@ -1,3 +1,10 @@
+//
+//  AuthViewController.swift
+//  SoulMate
+//
+//  Created by MAHMUT AKIN on 02/02/2026.
+//
+
 import Foundation
 
 extension ChatViewModel {
@@ -58,6 +65,12 @@ extension ChatViewModel {
     }
 
     func handleOwnProfileChange(_ profile: UserPairProfile) {
+        let activeAuthUID = firebase.currentUserID()
+        if activeAuthUID == nil || activeAuthUID != currentUserID {
+            handleSignedOutSessionWithoutPairingInvalidation()
+            return
+        }
+
         notifyOnMain {
             self.onPairingCodeUpdated?(profile.sixDigitUID)
         }
@@ -136,6 +149,12 @@ extension ChatViewModel {
     }
 
     func handleObserverCancellation(_ error: Error) {
+        let activeAuthUID = firebase.currentUserID()
+        if activeAuthUID == nil || activeAuthUID != currentUserID {
+            handleSignedOutSessionWithoutPairingInvalidation()
+            return
+        }
+
         guard state != .unpaired else { return }
         switch observerCancellationPolicy(for: error) {
         case .invalidatePairing:
@@ -145,6 +164,26 @@ extension ChatViewModel {
             emitError(error)
             scheduleObserverRebind()
         }
+    }
+
+    func handleSignedOutSessionWithoutPairingInvalidation() {
+        let previousPartner = partnerUserID
+        stopObservers()
+        currentUserID = nil
+        partnerUserID = nil
+        latestPartnerPublicKey = nil
+        hasLoggedUnreadablePayloadWarning = false
+        isAttemptingSharedKeyRecovery = false
+        observerRebindWorkItem?.cancel()
+        observerRebindWorkItem = nil
+        activeChatID = nil
+        cancelPairingTimeout()
+        if let previousPartner {
+            encryption.clearSharedKey(partnerUID: previousPartner)
+        }
+        resetMessageState(notify: true)
+        clearWidgetConversationSnapshot()
+        state = .idle
     }
 
     enum ObserverCancellationPolicy {

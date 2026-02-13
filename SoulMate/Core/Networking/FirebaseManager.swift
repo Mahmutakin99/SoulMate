@@ -1,3 +1,10 @@
+//
+//  AuthViewController.swift
+//  SoulMate
+//
+//  Created by MAHMUT AKIN on 02/02/2026.
+//
+
 import Foundation
 
 #if canImport(FirebaseDatabase)
@@ -9,6 +16,9 @@ enum FirebaseManagerError: LocalizedError {
     case unauthenticated
     case partnerNotFound
     case invalidPairCode
+    case sessionLockedElsewhere
+    case sessionValidationFailed
+    case logoutRequiresNetwork
     case generic(String)
 
     var errorDescription: String? {
@@ -21,6 +31,12 @@ enum FirebaseManagerError: LocalizedError {
             return L10n.t("firebase.error.partner_not_found")
         case .invalidPairCode:
             return L10n.t("firebase.error.invalid_pair_code")
+        case .sessionLockedElsewhere:
+            return L10n.t("auth.error.session_locked_elsewhere")
+        case .sessionValidationFailed:
+            return L10n.t("auth.error.session_validation_failed")
+        case .logoutRequiresNetwork:
+            return L10n.t("auth.error.logout_requires_network")
         case .generic(let message):
             return message
         }

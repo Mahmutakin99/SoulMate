@@ -1,3 +1,10 @@
+//
+//  AuthViewController.swift
+//  SoulMate
+//
+//  Created by MAHMUT AKIN on 02/02/2026.
+//
+
 import Foundation
 #if canImport(FirebaseAuth)
 import FirebaseAuth
@@ -83,6 +90,16 @@ extension FirebaseManager {
         let detailDescription = String(describing: detailsValue ?? "").lowercased()
         let localizedDescription = nsError.localizedDescription.lowercased()
         let combined = "\(localizedDescription) \(detailDescription)"
+        let isAcquireSessionAction = action == "acquireSessionLock"
+        let isReleaseSessionAction = action == "releaseSessionLock"
+        let isSessionAction = isAcquireSessionAction || isReleaseSessionAction
+
+        if isAcquireSessionAction && combined.contains("session_lock_acquire_failed") {
+            return FirebaseManagerError.sessionValidationFailed
+        }
+        if isReleaseSessionAction && combined.contains("session_lock_release_failed") {
+            return FirebaseManagerError.logoutRequiresNetwork
+        }
 
         #if canImport(FirebaseFunctions)
         if nsError.domain == FunctionsErrorDomain {
@@ -91,6 +108,9 @@ extension FirebaseManager {
                 case .unauthenticated:
                     return FirebaseManagerError.unauthenticated
                 case .invalidArgument:
+                    if combined.contains("session_lock_invalid_installation") {
+                        return isReleaseSessionAction ? FirebaseManagerError.logoutRequiresNetwork : FirebaseManagerError.sessionValidationFailed
+                    }
                     if action == "ackMessageStored" {
                         return FirebaseManagerError.generic(L10n.t("chat.local.error.invalid_ack_input"))
                     }
@@ -102,6 +122,12 @@ extension FirebaseManager {
                     }
                     return FirebaseManagerError.generic(L10n.t("pairing.request.error.generic_invalid"))
                 case .failedPrecondition:
+                    if combined.contains("session_locked_on_another_device") {
+                        return FirebaseManagerError.sessionLockedElsewhere
+                    }
+                    if combined.contains("session_lock_invalid_installation") {
+                        return isReleaseSessionAction ? FirebaseManagerError.logoutRequiresNetwork : FirebaseManagerError.sessionValidationFailed
+                    }
                     if combined.contains("user_already_paired") {
                         return FirebaseManagerError.generic(L10n.t("pairing.request.error.user_already_paired"))
                     }
@@ -134,19 +160,36 @@ extension FirebaseManager {
                     }
                     return FirebaseManagerError.generic(L10n.t("pairing.request.error.generic_invalid"))
                 case .permissionDenied:
+                    if isSessionAction {
+                        return isReleaseSessionAction ? FirebaseManagerError.logoutRequiresNetwork : FirebaseManagerError.sessionValidationFailed
+                    }
                     return FirebaseManagerError.generic(L10n.t("pairing.request.error.permission_denied"))
                 case .notFound:
+                    if isSessionAction {
+                        return isReleaseSessionAction ? FirebaseManagerError.logoutRequiresNetwork : FirebaseManagerError.sessionValidationFailed
+                    }
                     if action == "ackMessageStored" {
                         return FirebaseManagerError.generic(L10n.t("chat.local.error.ack_failed"))
                     }
                     return FirebaseManagerError.generic(L10n.t("pairing.request.error.function_not_deployed"))
+                case .unavailable, .deadlineExceeded:
+                    if isSessionAction {
+                        return isReleaseSessionAction ? FirebaseManagerError.logoutRequiresNetwork : FirebaseManagerError.sessionValidationFailed
+                    }
+                    return FirebaseManagerError.generic(L10n.f("firebase.auth.error.action_failed_format", action, nsError.localizedDescription))
                 default:
+                    if isSessionAction {
+                        return isReleaseSessionAction ? FirebaseManagerError.logoutRequiresNetwork : FirebaseManagerError.sessionValidationFailed
+                    }
                     return FirebaseManagerError.generic(L10n.f("firebase.auth.error.action_failed_format", action, nsError.localizedDescription))
                 }
             }
         }
         #endif
 
+        if isSessionAction {
+            return isReleaseSessionAction ? FirebaseManagerError.logoutRequiresNetwork : FirebaseManagerError.sessionValidationFailed
+        }
         return FirebaseManagerError.generic(L10n.f("firebase.auth.error.action_failed_format", action, nsError.localizedDescription))
     }
 }

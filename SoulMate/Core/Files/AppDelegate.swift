@@ -1,3 +1,10 @@
+//
+//  AppDelegate.swift
+//  SoulMate
+//
+//  Created by MAHMUT AKIN on 02/02/2026.
+//
+
 import UIKit
 import UserNotifications
 #if canImport(GiphyUISDK)

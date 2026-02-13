@@ -1,9 +1,18 @@
+//
+//  AuthViewController.swift
+//  SoulMate
+//
+//  Created by MAHMUT AKIN on 02/02/2026.
+//
+
 import UIKit
 
 final class AuthViewController: UIViewController {
     var onAuthSuccess: (() -> Void)?
+    var initialNoticeMessage: String?
 
     private let viewModel: AuthViewModel
+    private var hasPresentedInitialNotice = false
 
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
@@ -32,6 +41,11 @@ final class AuthViewController: UIViewController {
         setupUI()
         bindViewModel()
         updateModeUI()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        presentInitialNoticeIfNeeded()
     }
 
     private func setupUI() {
@@ -153,5 +167,23 @@ final class AuthViewController: UIViewController {
             email: emailField.text ?? "",
             password: passwordField.text ?? ""
         )
+    }
+
+    private func presentInitialNoticeIfNeeded() {
+        guard !hasPresentedInitialNotice else { return }
+        guard let message = initialNoticeMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !message.isEmpty else {
+            return
+        }
+        guard presentedViewController == nil else { return }
+
+        hasPresentedInitialNotice = true
+        let alert = UIAlertController(
+            title: L10n.t("app.name"),
+            message: message,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: L10n.t("common.ok"), style: .default))
+        present(alert, animated: true)
     }
 }
