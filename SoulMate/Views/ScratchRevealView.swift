@@ -86,6 +86,7 @@ final class ScratchRevealView: UIView {
 
     private func scratch(at point: CGPoint) {
         guard !isFullyRevealed else { return }
+        guard scratchHits < maxHitsToReveal else { return }
 
         let radius: CGFloat = 17
         let ovalRect = CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)

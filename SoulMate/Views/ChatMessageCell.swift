@@ -5,6 +5,20 @@ import SDWebImage
 
 final class ChatMessageCell: UITableViewCell {
     static let reuseIdentifier = "ChatMessageCell"
+
+    // ── Cached colors ──
+    private static let outgoingBubble = UIColor(red: 0.86, green: 0.18, blue: 0.44, alpha: 0.92)
+    private static let incomingBubbleDark = UIColor(red: 0.16, green: 0.17, blue: 0.22, alpha: 0.96)
+    private static let incomingBubbleLight = UIColor.white.withAlphaComponent(0.95)
+    private static let outgoingBorder = UIColor(red: 0.78, green: 0.12, blue: 0.36, alpha: 0.8)
+    private static let incomingBorderDark = UIColor(red: 0.32, green: 0.34, blue: 0.41, alpha: 1)
+    private static let incomingTextDark = UIColor(red: 0.93, green: 0.93, blue: 0.97, alpha: 1)
+
+    // ── Cached fonts ──
+    private static let textFont = UIFont(name: "AvenirNext-Medium", size: 17) ?? .systemFont(ofSize: 17, weight: .medium)
+    private static let nudgeFont = UIFont(name: "AvenirNext-DemiBold", size: 17) ?? .systemFont(ofSize: 17, weight: .semibold)
+    private static let emojiFont = UIFont.systemFont(ofSize: 34)
+
     private let defaultGIFLoopCount = 3
     private let manualReplayLoopCount = 1
     var onSecretRevealed: (() -> Void)?
@@ -87,13 +101,13 @@ final class ChatMessageCell: UITableViewCell {
 
         let isDark = traitCollection.userInterfaceStyle == .dark
         bubbleView.backgroundColor = isOutgoing
-            ? UIColor(red: 0.86, green: 0.18, blue: 0.44, alpha: 0.92)
-            : (isDark ? UIColor(red: 0.16, green: 0.17, blue: 0.22, alpha: 0.96) : UIColor.white.withAlphaComponent(0.95))
+            ? Self.outgoingBubble
+            : (isDark ? Self.incomingBubbleDark : Self.incomingBubbleLight)
         bubbleView.layer.borderColor = isOutgoing
-            ? UIColor(red: 0.78, green: 0.12, blue: 0.36, alpha: 0.8).cgColor
-            : (isDark ? UIColor(red: 0.32, green: 0.34, blue: 0.41, alpha: 1).cgColor : UIColor.systemGray5.cgColor)
+            ? Self.outgoingBorder.cgColor
+            : (isDark ? Self.incomingBorderDark.cgColor : UIColor.systemGray5.cgColor)
         bubbleView.layer.borderWidth = 1
-        messageLabel.textColor = isOutgoing ? .white : (isDark ? UIColor(red: 0.93, green: 0.93, blue: 0.97, alpha: 1) : .label)
+        messageLabel.textColor = isOutgoing ? .white : (isDark ? Self.incomingTextDark : .label)
 
         switch message.type {
         case .text:
@@ -101,7 +115,7 @@ final class ChatMessageCell: UITableViewCell {
             currentGIFURLString = nil
             hasPlayedInitialGIF = false
             messageLabel.text = message.value
-            messageLabel.font = UIFont(name: "AvenirNext-Medium", size: 17) ?? .systemFont(ofSize: 17, weight: .medium)
+            messageLabel.font = Self.textFont
             setContentLayout(messageVisible: true, gifVisible: false, gifHeight: 0)
 
         case .emoji:
@@ -109,7 +123,7 @@ final class ChatMessageCell: UITableViewCell {
             currentGIFURLString = nil
             hasPlayedInitialGIF = false
             messageLabel.text = message.value
-            messageLabel.font = .systemFont(ofSize: 34)
+            messageLabel.font = Self.emojiFont
             setContentLayout(messageVisible: true, gifVisible: false, gifHeight: 0)
 
         case .nudge:
@@ -117,7 +131,7 @@ final class ChatMessageCell: UITableViewCell {
             currentGIFURLString = nil
             hasPlayedInitialGIF = false
             messageLabel.text = "\(message.value)"
-            messageLabel.font = UIFont(name: "AvenirNext-DemiBold", size: 17) ?? .systemFont(ofSize: 17, weight: .semibold)
+            messageLabel.font = Self.nudgeFont
             setContentLayout(messageVisible: true, gifVisible: false, gifHeight: 0)
 
         case .gif:
@@ -238,6 +252,14 @@ final class ChatMessageCell: UITableViewCell {
         #endif
     }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        bubbleView.layer.shadowPath = UIBezierPath(
+            roundedRect: bubbleView.bounds,
+            cornerRadius: bubbleView.layer.cornerRadius
+        ).cgPath
+    }
+
     private func setupUI() {
         bubbleView.layer.cornerRadius = 20
         bubbleView.layer.cornerCurve = .continuous
@@ -245,6 +267,8 @@ final class ChatMessageCell: UITableViewCell {
         bubbleView.layer.shadowOpacity = 0.06
         bubbleView.layer.shadowOffset = CGSize(width: 0, height: 3)
         bubbleView.layer.shadowRadius = 10
+        bubbleView.layer.shouldRasterize = true
+        bubbleView.layer.rasterizationScale = UIScreen.main.scale
         bubbleView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(bubbleView)
 

@@ -37,15 +37,20 @@ enum AppConfiguration {
         static let maxInMemoryMessagesOnPressure = 180
     }
 
+    enum MessageQueue {
+        static let cloudTTLSeconds: TimeInterval = 7 * 24 * 60 * 60
+        static let initialCloudSyncWindow: UInt = 120
+        static let localPageSize: UInt = 50
+    }
+
+    enum FeatureFlags {
+        static let localFirstEphemeralMessaging = true
+    }
+
     enum ImageCache {
         static let maxMemoryCostBytes: UInt = 36 * 1024 * 1024
         static let maxDiskSizeBytes: UInt = 220 * 1024 * 1024
         static let maxDiskAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
-    }
-
-    enum Archive {
-        static let maxLocalMessages: UInt = 2000
-        static let directoryName = "ArchivedConversations"
     }
 
     enum Request {

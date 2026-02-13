@@ -1,9 +1,10 @@
 import UIKit
 
 enum HapticEngine {
+    private static let impact = UIImpactFeedbackGenerator(style: .medium)
+    private static let notification = UINotificationFeedbackGenerator()
+
     static func playHeartbeatPattern() {
-        let impact = UIImpactFeedbackGenerator(style: .medium)
-        let notification = UINotificationFeedbackGenerator()
 
         impact.prepare()
         notification.prepare()

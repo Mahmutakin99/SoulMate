@@ -20,7 +20,9 @@ final class LiveActivityManager {
         do {
             _ = try Activity<SoulMateActivityAttributes>.request(attributes: attributes, content: content)
         } catch {
+            #if DEBUG
             print("Canlı Etkinlik başlatılamadı: \(error.localizedDescription)")
+            #endif
         }
         #endif
     }

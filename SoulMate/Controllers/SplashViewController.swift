@@ -131,7 +131,8 @@ final class SplashViewController: UIViewController {
 
     private func layoutOrbsForCurrentBounds() {
         let targetSize = min(max(view.bounds.width * 0.34, 120), 160)
-        if abs(targetSize - orbDiameter) > 0.5 {
+        let sizeChanged = abs(targetSize - orbDiameter) > 0.5
+        if sizeChanged {
             orbDiameter = targetSize
         }
 
@@ -142,11 +143,17 @@ final class SplashViewController: UIViewController {
         leftOrbView.layer.cornerRadius = orbRadius
         rightOrbView.layer.cornerRadius = orbRadius
 
-        [leftOrbView, rightOrbView].forEach {
-            $0.layer.shadowColor = UIColor.black.cgColor
-            $0.layer.shadowOpacity = 0.18
-            $0.layer.shadowRadius = 14
-            $0.layer.shadowOffset = CGSize(width: 0, height: 8)
+        if sizeChanged || leftOrbView.layer.shadowPath == nil {
+            [leftOrbView, rightOrbView].forEach {
+                $0.layer.shadowColor = UIColor.black.cgColor
+                $0.layer.shadowOpacity = 0.18
+                $0.layer.shadowRadius = 14
+                $0.layer.shadowOffset = CGSize(width: 0, height: 8)
+                $0.layer.shadowPath = UIBezierPath(
+                    roundedRect: $0.bounds,
+                    cornerRadius: orbRadius
+                ).cgPath
+            }
         }
 
         if !hasStartedAnimation {

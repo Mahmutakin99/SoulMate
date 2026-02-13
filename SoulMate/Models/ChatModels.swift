@@ -48,11 +48,6 @@ enum RelationshipRequestStatus: String, Codable {
     case cancelled
 }
 
-enum ArchiveChoice: String, Codable {
-    case keep
-    case delete
-}
-
 enum RelationshipRequestDecision: String {
     case accept
     case reject
@@ -67,8 +62,6 @@ struct RelationshipRequest: Hashable {
     let fromFirstName: String?
     let fromLastName: String?
     let fromSixDigitUID: String?
-    let initiatorArchiveChoice: ArchiveChoice?
-    let recipientArchiveChoice: ArchiveChoice?
     let createdAt: Date
     let expiresAt: Date
     let resolvedAt: Date?
@@ -96,18 +89,6 @@ struct RelationshipRequest: Hashable {
         self.fromFirstName = dictionary["fromFirstName"] as? String
         self.fromLastName = dictionary["fromLastName"] as? String
         self.fromSixDigitUID = dictionary["fromSixDigitUID"] as? String
-
-        if let initiatorArchiveChoiceRaw = dictionary["initiatorArchiveChoice"] as? String {
-            self.initiatorArchiveChoice = ArchiveChoice(rawValue: initiatorArchiveChoiceRaw)
-        } else {
-            self.initiatorArchiveChoice = nil
-        }
-
-        if let recipientArchiveChoiceRaw = dictionary["recipientArchiveChoice"] as? String {
-            self.recipientArchiveChoice = ArchiveChoice(rawValue: recipientArchiveChoiceRaw)
-        } else {
-            self.recipientArchiveChoice = nil
-        }
 
         self.createdAt = Date(timeIntervalSince1970: createdAt)
         self.expiresAt = Date(timeIntervalSince1970: expiresAt)

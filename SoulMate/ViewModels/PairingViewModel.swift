@@ -18,8 +18,7 @@ final class PairingViewModel {
 
     private let firebase: FirebaseManager
     private let encryption: EncryptionService
-    private let archiveService: ConversationArchiveService
-    private let jsonDecoder = JSONDecoder()
+    private let localMessageStore: LocalMessageStore
 
     private var currentUID: String?
     private var currentPartnerID: String?
@@ -32,14 +31,18 @@ final class PairingViewModel {
     private var outgoingRequests: [RelationshipRequest] = []
     private var hasLocalPendingUnpairRequest = false
 
+    var isUnpairRequestPending: Bool {
+        hasOutgoingPendingUnpairRequest
+    }
+
     init(
         firebase: FirebaseManager = .shared,
         encryption: EncryptionService = .shared,
-        archiveService: ConversationArchiveService = .shared
+        localMessageStore: LocalMessageStore = .shared
     ) {
         self.firebase = firebase
         self.encryption = encryption
-        self.archiveService = archiveService
+        self.localMessageStore = localMessageStore
     }
 
     deinit {
@@ -58,11 +61,25 @@ final class PairingViewModel {
         currentUID = uid
         onStateChanged?(.loading, L10n.t("pairing.status.profile_loading"))
         observeRequests(uid: uid)
+        firebase.syncIdentityPublicKeyIfNeeded(uid: uid) { result in
+            if case .failure(let error) = result {
+                #if DEBUG
+                print("Pairing public key senkronlanamadı: \(error.localizedDescription)")
+                #endif
+            }
+        }
 
         ownProfileObserver?.cancel()
-        ownProfileObserver = firebase.observeUserProfile(uid: uid) { [weak self] profile in
-            self?.handleOwnProfile(profile)
-        }
+        ownProfileObserver = firebase.observeUserProfile(
+            uid: uid,
+            onChange: { [weak self] profile in
+                self?.handleOwnProfile(profile)
+            },
+            onCancelled: { [weak self] error in
+                self?.emitError(error)
+                self?.refreshIdleState()
+            }
+        )
 
         firebase.fetchUserProfile(uid: uid) { [weak self] result in
             switch result {
@@ -100,8 +117,8 @@ final class PairingViewModel {
         }
     }
 
-    func sendUnpairRequest(archiveChoice: ArchiveChoice) {
-        guard let currentUID else {
+    func sendUnpairRequest() {
+        guard currentUID != nil else {
             emitError(FirebaseManagerError.unauthenticated)
             return
         }
@@ -118,40 +135,26 @@ final class PairingViewModel {
         onStateChanged?(.loading, L10n.t("pairing.status.unpair_request_sending"))
         let fallbackState = isMutuallyPaired ? State.paired : State.waiting
 
-        prepareArchiveIfNeeded(
-            currentUID: currentUID,
-            partnerUID: partnerUID,
-            archiveChoice: archiveChoice
-        ) { [weak self] result in
+        firebase.createUnpairRequest { [weak self] result in
             guard let self else { return }
             switch result {
+            case .success:
+                self.hasLocalPendingUnpairRequest = true
+                self.restoreStateAfterOperation(fallback: fallbackState)
+                self.onStateChanged?(.paired, L10n.t("pairing.status.unpair_request_pending"))
+                self.onNotice?(L10n.t("pairing.request.notice.unpair_sent"))
             case .failure(let error):
                 self.restoreStateAfterOperation(fallback: fallbackState)
                 self.emitError(error)
-            case .success:
-                self.firebase.createUnpairRequest(archiveChoice: archiveChoice) { [weak self] result in
-                    guard let self else { return }
-                    switch result {
-                    case .success:
-                        self.hasLocalPendingUnpairRequest = true
-                        self.restoreStateAfterOperation(fallback: fallbackState)
-                        self.onStateChanged?(.paired, L10n.t("pairing.status.unpair_request_pending"))
-                        self.onNotice?(L10n.t("pairing.request.notice.unpair_sent"))
-                    case .failure(let error):
-                        self.restoreStateAfterOperation(fallback: fallbackState)
-                        self.emitError(error)
-                    }
-                }
             }
         }
     }
 
     func respondToRequest(
         request: RelationshipRequest,
-        decision: RelationshipRequestDecision,
-        recipientArchiveChoice: ArchiveChoice? = nil
+        decision: RelationshipRequestDecision
     ) {
-        guard let currentUID else {
+        guard currentUID != nil else {
             emitError(FirebaseManagerError.unauthenticated)
             return
         }
@@ -184,8 +187,7 @@ final class PairingViewModel {
                 onStateChanged?(.loading, L10n.t("pairing.status.request_processing"))
                 firebase.respondUnpairRequest(
                     requestID: request.id,
-                    decision: .reject,
-                    recipientArchiveChoice: nil
+                    decision: .reject
                 ) { [weak self] result in
                     guard let self else { return }
                     switch result {
@@ -200,46 +202,29 @@ final class PairingViewModel {
                 return
             }
 
-            guard let recipientArchiveChoice else {
-                emitError(FirebaseManagerError.generic(L10n.t("pairing.unpair.error.archive_load_failed")))
-                return
-            }
-
             onStateChanged?(.loading, L10n.t("pairing.status.request_processing"))
             let partnerUID = request.fromUID
 
-            prepareArchiveIfNeeded(
-                currentUID: currentUID,
-                partnerUID: partnerUID,
-                archiveChoice: recipientArchiveChoice
+            firebase.respondUnpairRequest(
+                requestID: request.id,
+                decision: .accept
             ) { [weak self] result in
                 guard let self else { return }
                 switch result {
+                case .success:
+                    self.deleteLocalConversation(with: partnerUID)
+                    self.currentPartnerID = nil
+                    self.isMutuallyPaired = false
+                    self.hasEmittedPaired = false
+                    self.partnerProfileObserver?.cancel()
+                    self.partnerProfileObserver = nil
+                    self.encryption.clearSharedKey(partnerUID: partnerUID)
+                    self.clearWidgetConversationSnapshot()
+                    self.onStateChanged?(.notPaired, L10n.t("pairing.status.unpaired"))
+                    self.onNotice?(L10n.t("pairing.request.notice.unpair_accepted"))
                 case .failure(let error):
                     self.refreshIdleState()
                     self.emitError(error)
-                case .success:
-                    self.firebase.respondUnpairRequest(
-                        requestID: request.id,
-                        decision: .accept,
-                        recipientArchiveChoice: recipientArchiveChoice
-                    ) { [weak self] result in
-                        guard let self else { return }
-                        switch result {
-                        case .success:
-                            self.currentPartnerID = nil
-                            self.isMutuallyPaired = false
-                            self.hasEmittedPaired = false
-                            self.partnerProfileObserver?.cancel()
-                            self.partnerProfileObserver = nil
-                            self.encryption.clearSharedKey(partnerUID: partnerUID)
-                            self.onStateChanged?(.notPaired, L10n.t("pairing.status.unpaired"))
-                            self.onNotice?(L10n.t("pairing.request.notice.unpair_accepted"))
-                        case .failure(let error):
-                            self.refreshIdleState()
-                            self.emitError(error)
-                        }
-                    }
                 }
             }
         }
@@ -249,21 +234,33 @@ final class PairingViewModel {
         incomingRequestsObserver?.cancel()
         outgoingRequestsObserver?.cancel()
 
-        incomingRequestsObserver = firebase.observeIncomingRequests(uid: uid) { [weak self] requests in
-            guard let self else { return }
-            let filtered = self.filterActiveRequests(requests)
-            self.onIncomingRequestsUpdated?(filtered)
-            self.refreshIdleState()
-        }
+        incomingRequestsObserver = firebase.observeIncomingRequests(
+            uid: uid,
+            onChange: { [weak self] requests in
+                guard let self else { return }
+                let filtered = self.filterActiveRequests(requests)
+                self.onIncomingRequestsUpdated?(filtered)
+                self.refreshIdleState()
+            },
+            onCancelled: { [weak self] error in
+                self?.emitError(error)
+            }
+        )
 
-        outgoingRequestsObserver = firebase.observeOutgoingRequests(uid: uid) { [weak self] requests in
-            guard let self else { return }
-            let filtered = self.filterActiveRequests(requests)
-            self.outgoingRequests = filtered
-            self.hasLocalPendingUnpairRequest = filtered.contains(where: { $0.type == .unpair && $0.status == .pending && !$0.isExpired })
-            self.onOutgoingRequestsUpdated?(filtered)
-            self.refreshIdleState()
-        }
+        outgoingRequestsObserver = firebase.observeOutgoingRequests(
+            uid: uid,
+            onChange: { [weak self] requests in
+                guard let self else { return }
+                let filtered = self.filterActiveRequests(requests)
+                self.outgoingRequests = filtered
+                self.hasLocalPendingUnpairRequest = filtered.contains(where: { $0.type == .unpair && $0.status == .pending && !$0.isExpired })
+                self.onOutgoingRequestsUpdated?(filtered)
+                self.refreshIdleState()
+            },
+            onCancelled: { [weak self] error in
+                self?.emitError(error)
+            }
+        )
     }
 
     private func filterActiveRequests(_ requests: [RelationshipRequest]) -> [RelationshipRequest] {
@@ -324,12 +321,16 @@ final class PairingViewModel {
 
         let partnerID = profile.partnerID?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let partnerID, !partnerID.isEmpty else {
+            if let oldPartner = currentPartnerID, !oldPartner.isEmpty {
+                deleteLocalConversation(with: oldPartner)
+            }
             currentPartnerID = nil
             hasLocalPendingUnpairRequest = false
             isMutuallyPaired = false
             hasEmittedPaired = false
             partnerProfileObserver?.cancel()
             partnerProfileObserver = nil
+            clearWidgetConversationSnapshot()
             refreshIdleState()
             return
         }
@@ -348,111 +349,50 @@ final class PairingViewModel {
 
     private func observePartner(uid: String) {
         partnerProfileObserver?.cancel()
-        partnerProfileObserver = firebase.observeUserProfile(uid: uid) { [weak self] profile in
-            guard let self, let currentUID = self.currentUID else { return }
+        partnerProfileObserver = firebase.observeUserProfile(
+            uid: uid,
+            onChange: { [weak self] profile in
+                guard let self, let currentUID = self.currentUID else { return }
 
-            if profile.partnerID == currentUID {
-                self.isMutuallyPaired = true
-                self.onStateChanged?(.paired, L10n.t("pairing.status.paired"))
-                if !self.hasEmittedPaired {
-                    self.hasEmittedPaired = true
-                    self.onPaired?(uid)
-                }
-            } else {
-                self.isMutuallyPaired = false
-                self.hasEmittedPaired = false
-                self.onStateChanged?(.waiting, L10n.t("pairing.status.waiting_mutual"))
-            }
-        }
-    }
-
-    private func prepareArchiveIfNeeded(
-        currentUID: String,
-        partnerUID: String,
-        archiveChoice: ArchiveChoice,
-        completion: @escaping (Result<Void, Error>) -> Void
-    ) {
-        switch archiveChoice {
-        case .keep:
-            let chatID = FirebaseManager.chatID(for: currentUID, and: partnerUID)
-            archiveCurrentConversation(
-                currentUID: currentUID,
-                partnerUID: partnerUID,
-                chatID: chatID,
-                completion: completion
-            )
-        case .delete:
-            do {
-                try archiveService.deleteConversationArchive(currentUID: currentUID, partnerUID: partnerUID)
-                completion(.success(()))
-            } catch {
-                completion(.failure(error))
-            }
-        }
-    }
-
-    private func archiveCurrentConversation(
-        currentUID: String,
-        partnerUID: String,
-        chatID: String,
-        completion: @escaping (Result<Void, Error>) -> Void
-    ) {
-        firebase.fetchRecentEncryptedMessages(chatID: chatID, limit: AppConfiguration.Archive.maxLocalMessages) { [weak self] result in
-            guard let self else {
-                completion(.failure(FirebaseManagerError.generic(L10n.t("pairing.unpair.error.archive_failed"))))
-                return
-            }
-
-            switch result {
-            case .failure(let error):
-                completion(.failure(error))
-                return
-            case .success(let envelopes):
-                var archivedMessages: [ChatMessage] = []
-                archivedMessages.reserveCapacity(envelopes.count)
-
-                let sortedEnvelopes = envelopes.sorted { $0.sentAt < $1.sentAt }
-                for envelope in sortedEnvelopes {
-                    do {
-                        let decryptedPayload = try self.encryption.decrypt(envelope.payload, from: partnerUID)
-                        let payload = try self.jsonDecoder.decode(ChatPayload.self, from: decryptedPayload)
-                        let message = ChatMessage(
-                            id: envelope.id,
-                            senderID: envelope.senderID,
-                            recipientID: envelope.recipientID,
-                            sentAt: Date(timeIntervalSince1970: payload.sentAt),
-                            type: payload.type,
-                            value: payload.value,
-                            isSecret: payload.isSecret
-                        )
-                        archivedMessages.append(message)
-                    } catch {
-                        continue
+                if profile.partnerID == currentUID {
+                    self.isMutuallyPaired = true
+                    self.onStateChanged?(.paired, L10n.t("pairing.status.paired"))
+                    if !self.hasEmittedPaired {
+                        self.hasEmittedPaired = true
+                        self.onPaired?(uid)
                     }
+                } else {
+                    self.isMutuallyPaired = false
+                    self.hasEmittedPaired = false
+                    self.onStateChanged?(.waiting, L10n.t("pairing.status.waiting_mutual"))
                 }
-
-                do {
-                    try self.archiveService.saveConversation(
-                        currentUID: currentUID,
-                        partnerUID: partnerUID,
-                        messages: archivedMessages
-                    )
-                    if envelopes.isEmpty {
-                        self.onNotice?(L10n.t("pairing.unpair.notice.no_messages_to_archive"))
-                    } else if archivedMessages.isEmpty {
-                        completion(.failure(FirebaseManagerError.generic(L10n.t("pairing.unpair.error.archive_failed"))))
-                        return
-                    }
-                    completion(.success(()))
-                } catch {
-                    completion(.failure(error))
-                }
+            },
+            onCancelled: { [weak self] error in
+                self?.emitError(error)
+                self?.refreshIdleState()
             }
-        }
+        )
     }
 
     private func emitError(_ error: Error) {
         let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         onError?(message)
+    }
+
+    private func clearWidgetConversationSnapshot() {
+        guard let defaults = UserDefaults(suiteName: AppConfiguration.appGroupIdentifier) else { return }
+        defaults.removeObject(forKey: AppConfiguration.SharedStoreKey.latestMessage)
+        defaults.removeObject(forKey: AppConfiguration.SharedStoreKey.latestMood)
+        defaults.removeObject(forKey: AppConfiguration.SharedStoreKey.latestDistance)
+    }
+
+    private func deleteLocalConversation(with partnerUID: String) {
+        guard let currentUID = currentUID else { return }
+        let chatID = FirebaseManager.chatID(for: currentUID, and: partnerUID)
+        do {
+            try localMessageStore.deleteConversation(chatID: chatID)
+        } catch {
+            emitError(error)
+        }
     }
 }

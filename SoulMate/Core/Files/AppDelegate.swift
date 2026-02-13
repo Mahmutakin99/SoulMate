@@ -11,14 +11,6 @@ import SDWebImage
 final class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(
         _ application: UIApplication,
-        willFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
-    ) -> Bool {
-        FirebaseManager.shared.configureCoreIfNeeded()
-        return true
-    }
-
-    func application(
-        _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         FirebaseManager.shared.configureCoreIfNeeded()
@@ -47,7 +39,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        #if DEBUG
         print("APNs registration failed (non-fatal): \(error.localizedDescription)")
+        #endif
     }
 
     func application(
@@ -67,6 +61,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         cacheConfig.shouldUseWeakMemoryCache = true
         #endif
     }
+
 }
 
 extension AppDelegate: UNUserNotificationCenterDelegate {

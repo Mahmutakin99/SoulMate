@@ -460,6 +460,23 @@
         }
       }
     },
+    "pairing.nav.sign_out": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign Out"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çıkış Yap"
+          }
+        }
+      }
+    },
     "pairing.title": {
       "extractionState": "manual",
       "localizations": {
@@ -1289,6 +1306,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Oturum Detayları"
+          }
+        }
+      }
+    },
+    "chat.details.badge.accessibility_format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session details, %@ pending requests"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum detayları, %@ bekleyen istek"
+          }
+        }
+      }
+    },
+    "chat.account.accessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hesap"
+          }
+        }
+      }
+    },
+    "chat.account.badge.accessibility_format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account, %@ pending requests"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hesap, %@ bekleyen istek"
           }
         }
       }
@@ -2744,13 +2812,64 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Do you want to keep your last 2000 messages with this partner in encrypted local archive before unpairing?"
+            "value": "If you continue, all messages in this relationship will be permanently deleted from your device and cloud. This action cannot be undone."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sakla seçeneği son 2000 mesajı cihazında şifreli arşivler. Eşleşmeyi kaldırmadan önce bu mesajları saklamak ister misiniz?"
+            "value": "Devam edersen bu ilişkideki tüm mesajlar cihazdan ve buluttan kalıcı olarak silinir. Bu işlem geri alınamaz."
+          }
+        }
+      }
+    },
+    "pairing.sign_out.confirm.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign out"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çıkış yap"
+          }
+        }
+      }
+    },
+    "pairing.sign_out.confirm.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Do you want to sign out now?"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şimdi çıkış yapmak istiyor musun?"
+          }
+        }
+      }
+    },
+    "pairing.sign_out.confirm.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign Out"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çıkış Yap"
           }
         }
       }
@@ -2778,13 +2897,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Delete and unpair"
+            "value": "Send unpair request (delete all messages)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Saklama, kaldır"
+            "value": "Kaldırma isteği gönder (tüm mesajlar silinir)"
           }
         }
       }
@@ -3016,13 +3135,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Accept + Delete"
+            "value": "Accept and permanently delete all messages"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kabul Et + Saklama"
+            "value": "Kabul et ve tüm mesajları kalıcı sil"
           }
         }
       }
@@ -3431,6 +3550,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sunucu fonksiyonu henüz deploy edilmemiş. Firebase Functions deploy edip tekrar deneyin."
+          }
+        }
+      }
+    },
+    "chat.local.error.database_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local message database is unavailable."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yerel mesaj veritabanına erişilemiyor."
+          }
+        }
+      }
+    },
+    "chat.local.error.database_open_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local message database could not be opened."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yerel mesaj veritabanı açılamadı."
+          }
+        }
+      }
+    },
+    "chat.local.error.statement_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A local database query could not be prepared."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yerel veritabanı sorgusu hazırlanamadı."
+          }
+        }
+      }
+    },
+    "chat.local.error.execution_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A local database operation failed."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yerel veritabanı işlemi başarısız oldu."
+          }
+        }
+      }
+    },
+    "chat.local.error.context_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message sync context is missing."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesaj senkronizasyon bağlamı bulunamadı."
+          }
+        }
+      }
+    },
+    "chat.local.error.invalid_ack_input": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid message acknowledgement data."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçersiz mesaj onayı verisi."
+          }
+        }
+      }
+    },
+    "chat.local.error.ack_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message acknowledgement failed. It will be retried automatically."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesaj onayı başarısız oldu. Otomatik olarak yeniden denenecek."
           }
         }
       }

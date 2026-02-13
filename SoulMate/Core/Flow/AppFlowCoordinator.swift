@@ -28,7 +28,9 @@ final class AppFlowCoordinator {
                     self?.route(for: state, animated: animated)
                 case .failure(let error):
                     let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    #if DEBUG
                     print("Launch state resolution failed: \(message)")
+                    #endif
                     self?.showAuth(animated: animated)
                 }
             }
@@ -56,6 +58,9 @@ final class AppFlowCoordinator {
         controller.onPaired = { [weak self] in
             self?.routeOnLaunch(animated: true)
         }
+        controller.onRequestSignOut = { [weak self] in
+            self?.signOut()
+        }
         navigationController.pushViewController(controller, animated: true)
     }
 
@@ -65,7 +70,9 @@ final class AppFlowCoordinator {
             showAuth(animated: true)
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            #if DEBUG
             print("Sign out failed: \(message)")
+            #endif
             showAuth(animated: true)
         }
     }
@@ -125,6 +132,9 @@ final class AppFlowCoordinator {
         let controller = PairingViewController(autoOpenChatWhenPaired: true)
         controller.onPaired = { [weak self] in
             self?.routeOnLaunch(animated: true)
+        }
+        controller.onRequestSignOut = { [weak self] in
+            self?.signOut()
         }
         setRoot(controller, animated: animated)
     }

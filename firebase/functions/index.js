@@ -1,5 +1,6 @@
 const { onValueCreated } = require("firebase-functions/v2/database");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 
@@ -13,6 +14,7 @@ const INVALID_TOKEN_CODES = new Set([
 const CALLABLE_REGION = "europe-west1";
 const DATABASE_TRIGGER_REGION = "us-central1";
 const REQUEST_EXPIRY_SECONDS = 24 * 60 * 60;
+const CLOUD_MESSAGE_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 const REQUEST_TYPE = {
   PAIR: "pair",
@@ -24,11 +26,6 @@ const REQUEST_STATUS = {
   ACCEPTED: "accepted",
   REJECTED: "rejected",
   EXPIRED: "expired"
-};
-
-const ARCHIVE_CHOICE = {
-  KEEP: "keep",
-  DELETE: "delete"
 };
 
 function nowSeconds() {
@@ -57,12 +54,6 @@ function readName(profile, key) {
 function readPairCode(profile) {
   const value = profile?.sixDigitUID;
   return typeof value === "string" ? value : "";
-}
-
-function ensureArchiveChoice(choice) {
-  if (choice !== ARCHIVE_CHOICE.KEEP && choice !== ARCHIVE_CHOICE.DELETE) {
-    throw new HttpsError("invalid-argument", "invalid_archive_choice");
-  }
 }
 
 function requestChatID(uidA, uidB) {
@@ -180,6 +171,80 @@ exports.sendEncryptedMessagePush = onValueCreated(
         logger.info("Geçersiz token temizlendi.", { recipientID });
       }
     }
+  }
+);
+
+exports.ackMessageStored = onCall(
+  { region: CALLABLE_REGION },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "auth_required");
+    }
+
+    const chatID = normalizedString(request.data?.chatID);
+    const messageID = normalizedString(request.data?.messageID);
+    if (!chatID || !messageID) {
+      throw new HttpsError("invalid-argument", "invalid_ack_input");
+    }
+
+    const messageRef = admin.database().ref(`/chats/${chatID}/messages/${messageID}`);
+    const snap = await messageRef.get();
+    if (!snap.exists()) {
+      return { success: true, alreadyAcked: true };
+    }
+
+    const message = snap.val() || {};
+    if (normalizedString(message.recipientID) !== uid) {
+      throw new HttpsError("failed-precondition", "ack_forbidden");
+    }
+
+    await messageRef.remove();
+    return { success: true };
+  }
+);
+
+exports.cleanupExpiredTransientMessages = onSchedule(
+  {
+    region: DATABASE_TRIGGER_REGION,
+    schedule: "every 6 hours",
+    timeZone: "Etc/UTC"
+  },
+  async () => {
+    const cutoff = nowSeconds() - CLOUD_MESSAGE_TTL_SECONDS;
+    const chatsSnapshot = await admin.database().ref("/chats").get();
+    if (!chatsSnapshot.exists()) {
+      return;
+    }
+
+    const updates = {};
+    let deleteCount = 0;
+
+    chatsSnapshot.forEach((chatSnap) => {
+      const chatID = chatSnap.key;
+      const messages = chatSnap.child("messages");
+      if (!messages.exists()) {
+        return;
+      }
+
+      messages.forEach((messageSnap) => {
+        const message = messageSnap.val() || {};
+        const sentAt = Number(message.sentAt || 0);
+        if (sentAt > 0 && sentAt <= cutoff) {
+          updates[`/chats/${chatID}/messages/${messageSnap.key}`] = null;
+          deleteCount += 1;
+        }
+      });
+    });
+
+    if (deleteCount > 0) {
+      await admin.database().ref().update(updates);
+    }
+
+    logger.info("Transient message cleanup completed.", {
+      deletedMessages: deleteCount,
+      cutoff
+    });
   }
 );
 
@@ -374,9 +439,6 @@ exports.createUnpairRequest = onCall(
       throw new HttpsError("unauthenticated", "auth_required");
     }
 
-    const archiveChoice = normalizedString(request.data?.archiveChoice);
-    ensureArchiveChoice(archiveChoice);
-
     const requesterProfile = await loadUserProfile(uid);
     const partnerUID = readPartnerID(requesterProfile);
     if (!partnerUID) {
@@ -411,7 +473,6 @@ exports.createUnpairRequest = onCall(
       fromFirstName: readName(requesterProfile, "firstName"),
       fromLastName: readName(requesterProfile, "lastName"),
       fromSixDigitUID: readPairCode(requesterProfile),
-      initiatorArchiveChoice: archiveChoice,
       createdAt,
       expiresAt
     };
@@ -431,7 +492,6 @@ exports.respondUnpairRequest = onCall(
 
     const requestID = normalizedString(request.data?.requestID);
     const decision = normalizedString(request.data?.decision);
-    const recipientArchiveChoice = normalizedString(request.data?.recipientArchiveChoice);
 
     if (!requestID) {
       throw new HttpsError("invalid-argument", "request_id_required");
@@ -472,8 +532,6 @@ exports.respondUnpairRequest = onCall(
       return { success: true, status: REQUEST_STATUS.REJECTED };
     }
 
-    ensureArchiveChoice(recipientArchiveChoice);
-
     const fromUID = normalizedString(requestData.fromUID);
     if (!fromUID) {
       throw new HttpsError("internal", "request_invalid_sender");
@@ -492,8 +550,7 @@ exports.respondUnpairRequest = onCall(
       [`/users/${fromUID}/partnerID`]: null,
       [`/users/${uid}/partnerID`]: null,
       [`/relationshipRequests/${requestID}/status`]: REQUEST_STATUS.ACCEPTED,
-      [`/relationshipRequests/${requestID}/resolvedAt`]: nowSeconds(),
-      [`/relationshipRequests/${requestID}/recipientArchiveChoice`]: recipientArchiveChoice
+      [`/relationshipRequests/${requestID}/resolvedAt`]: nowSeconds()
     };
 
     await admin.database().ref().update(updates);

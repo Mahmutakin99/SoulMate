@@ -3,6 +3,7 @@ import UIKit
 final class PairingViewController: UIViewController {
     var onPaired: (() -> Void)?
     var onBackToChat: (() -> Void)?
+    var onRequestSignOut: (() -> Void)?
 
     private let viewModel: PairingViewModel
     private let autoOpenChatWhenPaired: Bool
@@ -38,9 +39,19 @@ final class PairingViewController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         title = L10n.t("pairing.nav_title")
+        configureNavigationItems()
         setupUI()
         bindViewModel()
         viewModel.start()
+    }
+
+    private func configureNavigationItems() {
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            title: L10n.t("pairing.nav.sign_out"),
+            style: .plain,
+            target: self,
+            action: #selector(signOutTapped)
+        )
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -217,7 +228,7 @@ final class PairingViewController: UIViewController {
         case .paired:
             pairButton.isEnabled = false
             clearPairButton.isHidden = false
-            clearPairButton.isEnabled = message != L10n.t("pairing.status.unpair_request_pending")
+            clearPairButton.isEnabled = !viewModel.isUnpairRequestPending
             openChatButton.isHidden = autoOpenChatWhenPaired
             activity.stopAnimating()
         }
@@ -231,22 +242,15 @@ final class PairingViewController: UIViewController {
     @objc private func clearPairTapped() {
         let alert = UIAlertController(
             title: L10n.t("pairing.unpair.confirm.title"),
-            message: L10n.t("pairing.request.notice.keep_last_2000"),
+            message: L10n.t("pairing.unpair.confirm.message"),
             preferredStyle: .alert
         )
 
         alert.addAction(makeAlertAction(
-            title: L10n.t("pairing.request.action.send_unpair_keep"),
-            style: .default
-        ) { [weak self] in
-            self?.viewModel.sendUnpairRequest(archiveChoice: .keep)
-        })
-
-        alert.addAction(makeAlertAction(
-            title: L10n.t("pairing.request.action.send_unpair_delete"),
+            title: L10n.t("pairing.unpair.action.delete_and_unpair"),
             style: .destructive
         ) { [weak self] in
-            self?.viewModel.sendUnpairRequest(archiveChoice: .delete)
+            self?.viewModel.sendUnpairRequest()
         })
 
         alert.addAction(makeAlertAction(title: L10n.t("common.cancel"), style: .cancel))
@@ -255,6 +259,22 @@ final class PairingViewController: UIViewController {
 
     @objc private func openChatTapped() {
         onBackToChat?()
+    }
+
+    @objc private func signOutTapped() {
+        let alert = UIAlertController(
+            title: L10n.t("pairing.sign_out.confirm.title"),
+            message: L10n.t("pairing.sign_out.confirm.message"),
+            preferredStyle: .alert
+        )
+        alert.addAction(makeAlertAction(
+            title: L10n.t("pairing.sign_out.confirm.action"),
+            style: .destructive
+        ) { [weak self] in
+            self?.onRequestSignOut?()
+        })
+        alert.addAction(makeAlertAction(title: L10n.t("common.cancel"), style: .cancel))
+        presentAlertSafely(alert)
     }
 
     private func presentActions(for request: RelationshipRequest) {
@@ -278,21 +298,13 @@ final class PairingViewController: UIViewController {
 
         case .unpair:
             let title = L10n.f("pairing.request.alert.unpair.title_format", senderName)
-            let message = L10n.t("pairing.request.notice.keep_last_2000")
+            let message = L10n.t("pairing.unpair.confirm.message")
 
             let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
-            alert.addAction(makeAlertAction(title: L10n.t("pairing.request.action.accept_keep"), style: .default) { [weak self] in
-                self?.viewModel.respondToRequest(
-                    request: request,
-                    decision: .accept,
-                    recipientArchiveChoice: .keep
-                )
-            })
             alert.addAction(makeAlertAction(title: L10n.t("pairing.request.action.accept_delete"), style: .default) { [weak self] in
                 self?.viewModel.respondToRequest(
                     request: request,
-                    decision: .accept,
-                    recipientArchiveChoice: .delete
+                    decision: .accept
                 )
             })
             alert.addAction(makeAlertAction(title: L10n.t("pairing.request.action.reject"), style: .destructive) { [weak self] in

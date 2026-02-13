@@ -101,8 +101,15 @@ final class EncryptionService {
         "crypto.shared.\(normalized(partnerUID))"
     }
 
+    // swiftlint:disable:next force_try
+    private static let normalizeRegex = try! NSRegularExpression(pattern: "[^a-zA-Z0-9_-]")
+
     private func normalized(_ value: String) -> String {
-        value.replacingOccurrences(of: "[^a-zA-Z0-9_-]", with: "_", options: .regularExpression)
+        Self.normalizeRegex.stringByReplacingMatches(
+            in: value,
+            range: NSRange(value.startIndex..., in: value),
+            withTemplate: "_"
+        )
     }
 
     private let identityPrivateKeyAccount = "crypto.identity.private"
