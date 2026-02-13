@@ -111,10 +111,14 @@ extension ChatViewModel {
 
         messageObserver?.cancel()
         heartbeatObserver?.cancel()
+        messageReceiptsObserver?.cancel()
+        messageReactionsObserver?.cancel()
         profileObserver?.cancel()
         moodObserver?.cancel()
         messageObserver = nil
         heartbeatObserver = nil
+        messageReceiptsObserver = nil
+        messageReactionsObserver = nil
         profileObserver = nil
         moodObserver = nil
 
@@ -158,12 +162,39 @@ extension ChatViewModel {
         guard state != .unpaired else { return }
         switch observerCancellationPolicy(for: error) {
         case .invalidatePairing:
-            emitError(error)
+            notifyPairingStatus(L10n.t("pairing.request.error.not_mutual"))
             invalidateCurrentPairing(notifyUI: true, shouldRouteToPairing: true, wipeLocalConversation: true)
         case .transientRetry:
-            emitError(error)
             scheduleObserverRebind()
         }
+    }
+
+    func handleMessageSyncError(_ error: Error) {
+        guard shouldInvalidatePairingForMessageSyncError(error) else {
+            emitError(error)
+            return
+        }
+
+        notifyPairingStatus(L10n.t("pairing.request.error.not_mutual"))
+        invalidateCurrentPairing(notifyUI: true, shouldRouteToPairing: true, wipeLocalConversation: true)
+    }
+
+    func shouldInvalidatePairingForMessageSyncError(_ error: Error) -> Bool {
+        guard state == .ready,
+              currentUserID != nil,
+              firebase.currentUserID() == currentUserID else {
+            return false
+        }
+
+        let description = ((error as? LocalizedError)?.errorDescription ?? error.localizedDescription).lowercased()
+        if description.contains("not_mutual_pair") ||
+            description.contains("not mutual pair") ||
+            description.contains("mutual pairing is not active") ||
+            description.contains("karşılıklı eşleşme aktif değil") {
+            return true
+        }
+
+        return false
     }
 
     func handleSignedOutSessionWithoutPairingInvalidation() {
@@ -194,10 +225,17 @@ extension ChatViewModel {
     func observerCancellationPolicy(for error: Error) -> ObserverCancellationPolicy {
         let description = ((error as? LocalizedError)?.errorDescription ?? error.localizedDescription).lowercased()
 
-        if description.contains("permission denied") ||
-            description.contains("erişim reddedildi") ||
-            description.contains("not_mutual_pair") {
+        if description.contains("not_mutual_pair") {
             return .invalidatePairing
+        }
+        if description.contains("mutual pairing is not active") ||
+            description.contains("karşılıklı eşleşme aktif değil") {
+            return .invalidatePairing
+        }
+
+        if description.contains("permission denied") ||
+            description.contains("erişim reddedildi") {
+            return .transientRetry
         }
 
         if description.contains("connection lost") ||
@@ -210,7 +248,7 @@ extension ChatViewModel {
             return .transientRetry
         }
 
-        return .invalidatePairing
+        return .transientRetry
     }
 
     func scheduleObserverRebind() {
@@ -314,12 +352,17 @@ extension ChatViewModel {
         let chatID = FirebaseManager.chatID(for: currentUserID, and: partnerUserID)
         let shouldRebindObservers = activeChatID != chatID || messageObserver == nil || heartbeatObserver == nil
         if !shouldRebindObservers {
+            if messageReceiptsObserver == nil || messageReactionsObserver == nil {
+                observeMessageMetadataIfNeeded(chatID: chatID)
+            }
             startLocationSharingIfNeeded()
             return
         }
 
         messageObserver?.cancel()
         heartbeatObserver?.cancel()
+        messageReceiptsObserver?.cancel()
+        messageReactionsObserver?.cancel()
 
         if activeChatID != chatID {
             resetMessageState(notify: true)
@@ -330,6 +373,7 @@ extension ChatViewModel {
         loadInitialMessagesFromLocal()
 
         bootstrapRecentMessagesAndListen(chatID: chatID, currentUserID: currentUserID, partnerUserID: partnerUserID)
+        observeMessageMetadataIfNeeded(chatID: chatID)
         startLocationSharingIfNeeded()
 
         heartbeatObserver = firebase.observeHeartbeat(
@@ -392,14 +436,33 @@ extension ChatViewModel {
             onChange: { [weak self] requests in
                 guard let self else { return }
                 let pendingCount = requests.filter { $0.status == .pending && !$0.isExpired }.count
+                let pairCount = requests.filter { $0.status == .pending && !$0.isExpired && $0.type == .pair }.count
+                let unpairCount = requests.filter { $0.status == .pending && !$0.isExpired && $0.type == .unpair }.count
                 self.notifyOnMain {
                     self.onIncomingPendingRequestCountChanged?(pendingCount)
+                    self.onIncomingPendingRequestBadgeChanged?(
+                        IncomingRequestBadgeState(
+                            total: pendingCount,
+                            pairCount: pairCount,
+                            unpairCount: unpairCount
+                        )
+                    )
                 }
             },
             onCancelled: { [weak self] error in
-                self?.emitError(error)
-                self?.notifyOnMain {
-                    self?.onIncomingPendingRequestCountChanged?(0)
+                guard let self else { return }
+                let activeAuthUID = self.firebase.currentUserID()
+                guard activeAuthUID != nil && activeAuthUID == self.currentUserID else {
+                    self.notifyOnMain {
+                        self.onIncomingPendingRequestCountChanged?(0)
+                        self.onIncomingPendingRequestBadgeChanged?(.empty)
+                    }
+                    return
+                }
+                self.emitError(error)
+                self.notifyOnMain {
+                    self.onIncomingPendingRequestCountChanged?(0)
+                    self.onIncomingPendingRequestBadgeChanged?(.empty)
                 }
             }
         )
@@ -410,12 +473,16 @@ extension ChatViewModel {
         incomingRequestsObserver?.cancel()
         messageObserver?.cancel()
         heartbeatObserver?.cancel()
+        messageReceiptsObserver?.cancel()
+        messageReactionsObserver?.cancel()
         profileObserver?.cancel()
         moodObserver?.cancel()
         ownProfileObserver = nil
         incomingRequestsObserver = nil
         messageObserver = nil
         heartbeatObserver = nil
+        messageReceiptsObserver = nil
+        messageReactionsObserver = nil
         profileObserver = nil
         moodObserver = nil
         activeChatID = nil
@@ -426,6 +493,7 @@ extension ChatViewModel {
         observerRebindWorkItem = nil
         notifyOnMain {
             self.onIncomingPendingRequestCountChanged?(0)
+            self.onIncomingPendingRequestBadgeChanged?(.empty)
         }
     }
 

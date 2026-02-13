@@ -6,9 +6,6 @@
 //
 
 import UIKit
-#if canImport(GiphyUISDK)
-import GiphyUISDK
-#endif
 
 extension ChatViewController {
     func setupInputSection() {
@@ -39,7 +36,6 @@ extension ChatViewController {
         composerSendButton.translatesAutoresizingMaskIntoConstraints = false
         composerSendButton.addTarget(self, action: #selector(sendButtonTapped), for: .touchUpInside)
 
-        gifButton.addTarget(self, action: #selector(gifButtonTapped), for: .touchUpInside)
         emojiToggleButton.addTarget(self, action: #selector(emojiToggleTapped), for: .touchUpInside)
 
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(heartLongPress(_:)))
@@ -51,7 +47,7 @@ extension ChatViewController {
         composerRow.spacing = 8
         composerRow.translatesAutoresizingMaskIntoConstraints = false
 
-        let controlsRow = UIStackView(arrangedSubviews: [secretLabel, secretSwitch, gifButton, emojiToggleButton, heartButton])
+        let controlsRow = UIStackView(arrangedSubviews: [secretLabel, secretSwitch, emojiToggleButton, heartButton])
         controlsRow.axis = .horizontal
         controlsRow.alignment = .center
         controlsRow.spacing = 10
@@ -67,8 +63,8 @@ extension ChatViewController {
             composerRow.trailingAnchor.constraint(equalTo: inputContainer.trailingAnchor, constant: -12),
 
             messageTextField.heightAnchor.constraint(equalToConstant: 46),
-            composerSendButton.widthAnchor.constraint(equalToConstant: 36),
-            composerSendButton.heightAnchor.constraint(equalToConstant: 36),
+            composerSendButton.widthAnchor.constraint(equalToConstant: 46),//sendButton Boyutu
+            composerSendButton.heightAnchor.constraint(equalToConstant: 46),//sendButton Boyutu
 
             controlsRow.topAnchor.constraint(equalTo: composerRow.bottomAnchor, constant: 10),
             controlsRow.leadingAnchor.constraint(equalTo: inputContainer.leadingAnchor, constant: 12),
@@ -115,7 +111,7 @@ extension ChatViewController {
     }
 
     func configureComposerSendButton() {
-        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 28, weight: .semibold)
+        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 40, weight: .semibold)//sendButton Boyutu
         composerSendButton.setPreferredSymbolConfiguration(symbolConfig, forImageIn: .normal)
         composerSendButton.setImage(UIImage(systemName: "paperplane.circle.fill"), for: .normal)
         composerSendButton.tintColor = theme.accent
@@ -244,23 +240,6 @@ extension ChatViewController {
         }
     }
 
-    @objc func gifButtonTapped() {
-        #if canImport(GiphyUISDK)
-        let controller = GiphyViewController()
-        controller.delegate = self
-        present(controller, animated: true)
-        #else
-        let alert = UIAlertController(title: L10n.t("chat.alert.gif.title"), message: L10n.t("chat.alert.gif.message"), preferredStyle: .alert)
-        alert.addTextField { $0.placeholder = L10n.t("chat.alert.gif.placeholder") }
-        alert.addAction(UIAlertAction(title: L10n.t("common.cancel"), style: .cancel))
-        alert.addAction(UIAlertAction(title: L10n.t("chat.alert.gif.send"), style: .default, handler: { [weak self, weak alert] _ in
-            let url = alert?.textFields?.first?.text ?? ""
-            self?.viewModel.sendGIF(urlString: url, isSecret: self?.secretSwitch.isOn == true)
-        }))
-        _ = presentIfInHierarchy(alert)
-        #endif
-    }
-
     @objc func heartLongPress(_ recognizer: UILongPressGestureRecognizer) {
         if recognizer.state == .began {
             viewModel.sendHeartbeat()
@@ -296,17 +275,3 @@ extension ChatViewController: UIGestureRecognizerDelegate {
         return true
     }
 }
-
-#if canImport(GiphyUISDK)
-extension ChatViewController: GiphyDelegate {
-    func didSelectMedia(giphyViewController: GiphyViewController, media: GPHMedia) {
-        let urlString = media.url(rendition: .fixedWidth, fileType: .gif) ?? ""
-        viewModel.sendGIF(urlString: urlString, isSecret: secretSwitch.isOn)
-        giphyViewController.dismiss(animated: true)
-    }
-
-    func didDismiss(controller: GiphyViewController?) {
-        controller?.dismiss(animated: true)
-    }
-}
-#endif

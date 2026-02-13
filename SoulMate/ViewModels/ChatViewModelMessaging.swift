@@ -9,6 +9,13 @@ import Foundation
 import CryptoKit
 
 extension ChatViewModel {
+    private static let messageTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+
     func sendText(_ text: String, isSecret: Bool) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -19,10 +26,406 @@ extension ChatViewModel {
         sendPayload(type: .emoji, value: emoji, isSecret: false)
     }
 
-    func sendGIF(urlString: String, isSecret: Bool) {
-        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        sendPayload(type: .gif, value: trimmed, isSecret: isSecret)
+    func messageMeta(for messageID: String) -> ChatMessageMeta? {
+        messageMetaByID[messageID]
+    }
+
+    func isIncomingMessageForCurrentUser(_ message: ChatMessage) -> Bool {
+        guard let currentUserID else { return false }
+        return message.recipientID == currentUserID && message.senderID != currentUserID
+    }
+
+    func setReaction(messageID: String, emoji: String) {
+        guard state == .ready,
+              let chatID = activeChatID,
+              let currentUserID,
+              let partnerUserID else {
+            return
+        }
+
+        let trimmedEmoji = emoji.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedEmoji.isEmpty else { return }
+
+        do {
+            let payload = [
+                "emoji": trimmedEmoji,
+                "updatedAt": Date().timeIntervalSince1970
+            ] as [String: Any]
+            let data = try JSONSerialization.data(withJSONObject: payload)
+            let ciphertext = try encryption.encrypt(data, for: partnerUserID)
+
+            firebase.setMessageReaction(
+                chatID: chatID,
+                messageID: messageID,
+                ciphertext: ciphertext,
+                keyVersion: 1
+            ) { [weak self] result in
+                if case .failure(let error) = result {
+                    self?.emitError(error)
+                    return
+                }
+
+                let updatedAt = Date()
+                do {
+                    try self?.localMessageStore.upsertReaction(
+                        chatID: chatID,
+                        messageID: messageID,
+                        reactorUID: currentUserID,
+                        emoji: trimmedEmoji,
+                        updatedAt: updatedAt.timeIntervalSince1970
+                    )
+                } catch {
+                    self?.emitError(error)
+                }
+
+                let reaction = MessageReaction(
+                    messageID: messageID,
+                    reactorUID: currentUserID,
+                    emoji: trimmedEmoji,
+                    updatedAt: updatedAt
+                )
+                self?.notifyOnMain {
+                    var currentReactions = self?.messageReactionsByMessageID[messageID] ?? []
+                    currentReactions.removeAll(where: { $0.reactorUID == currentUserID })
+                    currentReactions.append(reaction)
+                    self?.messageReactionsByMessageID[messageID] = currentReactions
+                    self?.rebuildMessageMetadata(for: [messageID], notify: true)
+                }
+            }
+        } catch {
+            emitError(error)
+        }
+    }
+
+    func clearReaction(messageID: String) {
+        guard state == .ready,
+              let chatID = activeChatID,
+              let currentUserID else {
+            return
+        }
+
+        firebase.clearMessageReaction(chatID: chatID, messageID: messageID) { [weak self] result in
+            if case .failure(let error) = result {
+                self?.emitError(error)
+                return
+            }
+
+            do {
+                try self?.localMessageStore.removeReaction(
+                    chatID: chatID,
+                    messageID: messageID,
+                    reactorUID: currentUserID
+                )
+            } catch {
+                self?.emitError(error)
+            }
+
+            self?.notifyOnMain {
+                var currentReactions = self?.messageReactionsByMessageID[messageID] ?? []
+                currentReactions.removeAll(where: { $0.reactorUID == currentUserID })
+                self?.messageReactionsByMessageID[messageID] = currentReactions
+                self?.rebuildMessageMetadata(for: [messageID], notify: true)
+            }
+        }
+    }
+
+    func markVisibleIncomingMessagesAsRead(_ ids: [String]) {
+        guard state == .ready,
+              let chatID = activeChatID,
+              let currentUserID else {
+            return
+        }
+
+        let targetIDs = Set(ids)
+            .filter { id in
+                guard let message = messages.first(where: { $0.id == id }) else { return false }
+                guard message.recipientID == currentUserID else { return false }
+                return messageReceiptsByID[id]?.readAt == nil
+            }
+        guard !targetIDs.isEmpty else { return }
+
+        pendingReadReceiptMessageIDs.formUnion(targetIDs)
+        readReceiptWorkItem?.cancel()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard self.activeChatID == chatID else { return }
+            let pendingIDs = Array(self.pendingReadReceiptMessageIDs)
+            self.pendingReadReceiptMessageIDs.removeAll(keepingCapacity: true)
+
+            pendingIDs.forEach { messageID in
+                self.firebase.markMessageRead(chatID: chatID, messageID: messageID) { [weak self] result in
+                    guard let self else { return }
+                    switch result {
+                    case .success:
+                        self.notifyOnMain {
+                            let now = Date()
+                            if let existing = self.messageReceiptsByID[messageID] {
+                                let updated = MessageReceipt(
+                                    messageID: existing.messageID,
+                                    senderID: existing.senderID,
+                                    recipientID: existing.recipientID,
+                                    deliveredAt: existing.deliveredAt,
+                                    readAt: now,
+                                    updatedAt: now
+                                )
+                                self.messageReceiptsByID[messageID] = updated
+                                do {
+                                    try self.localMessageStore.markRead(
+                                        messageID: messageID,
+                                        readAt: now.timeIntervalSince1970,
+                                        updatedAt: now.timeIntervalSince1970
+                                    )
+                                } catch {
+                                    self.emitError(error)
+                                }
+                                self.rebuildMessageMetadata(for: [messageID], notify: true)
+                            }
+                        }
+                    case .failure(let error):
+                        self.emitError(error)
+                    }
+                }
+            }
+        }
+        readReceiptWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: workItem)
+    }
+
+    func observeMessageMetadataIfNeeded(chatID: String) {
+        messageReceiptsObserver?.cancel()
+        messageReactionsObserver?.cancel()
+
+        messageReceiptsObserver = firebase.observeMessageReceipts(
+            chatID: chatID,
+            onChange: { [weak self] receipts in
+                guard let self else { return }
+                self.notifyOnMain {
+                    var changedIDs = Set<String>()
+                    var newMap: [String: MessageReceipt] = [:]
+                    receipts.forEach { receipt in
+                        newMap[receipt.messageID] = receipt
+                    }
+
+                    let existingKeys = Set(self.messageReceiptsByID.keys)
+                    let incomingKeys = Set(newMap.keys)
+                    changedIDs.formUnion(existingKeys.subtracting(incomingKeys))
+                    changedIDs.formUnion(incomingKeys.subtracting(existingKeys))
+                    for messageID in incomingKeys.intersection(existingKeys) {
+                        if self.messageReceiptsByID[messageID] != newMap[messageID] {
+                            changedIDs.insert(messageID)
+                        }
+                    }
+
+                    self.messageReceiptsByID = newMap
+                    for receipt in receipts {
+                        do {
+                            try self.localMessageStore.upsertReceipt(
+                                chatID: chatID,
+                                messageID: receipt.messageID,
+                                senderID: receipt.senderID,
+                                recipientID: receipt.recipientID,
+                                deliveredAt: receipt.deliveredAt.timeIntervalSince1970,
+                                readAt: receipt.readAt?.timeIntervalSince1970,
+                                updatedAt: receipt.updatedAt.timeIntervalSince1970
+                            )
+                        } catch {
+                            self.emitError(error)
+                        }
+                    }
+
+                    self.rebuildMessageMetadata(for: changedIDs, notify: true)
+                }
+            },
+            onCancelled: { [weak self] error in
+                self?.handleObserverCancellation(error)
+            }
+        )
+
+        messageReactionsObserver = firebase.observeMessageReactions(
+            chatID: chatID,
+            onChange: { [weak self] rows in
+                guard let self else { return }
+                self.notifyOnMain {
+                    var grouped: [String: [MessageReaction]] = [:]
+                    for row in rows {
+                        do {
+                            guard let partnerUserID = self.partnerUserID else { continue }
+                            let decrypted = try self.encryption.decrypt(row.envelope.ciphertext, from: partnerUserID)
+                            guard let payload = try JSONSerialization.jsonObject(with: decrypted) as? [String: Any],
+                                  let emoji = payload["emoji"] as? String else {
+                                continue
+                            }
+                            let updatedAtRaw = payload["updatedAt"] as? TimeInterval ?? row.envelope.updatedAt
+                            let reaction = MessageReaction(
+                                messageID: row.messageID,
+                                reactorUID: row.reactorUID,
+                                emoji: emoji,
+                                updatedAt: Date(timeIntervalSince1970: updatedAtRaw)
+                            )
+                            grouped[row.messageID, default: []].append(reaction)
+
+                            try self.localMessageStore.upsertReaction(
+                                chatID: chatID,
+                                messageID: row.messageID,
+                                reactorUID: row.reactorUID,
+                                emoji: emoji,
+                                updatedAt: updatedAtRaw
+                            )
+                        } catch {
+                            self.emitError(error)
+                        }
+                    }
+
+                    let previousKeys = Set(self.messageReactionsByMessageID.keys)
+                    let incomingKeys = Set(grouped.keys)
+                    var changedIDs = previousKeys.symmetricDifference(incomingKeys)
+                    let oldMap = self.messageReactionsByMessageID
+                    for messageID in incomingKeys.intersection(previousKeys) {
+                        let oldValue = self.messageReactionsByMessageID[messageID]?.sorted(by: { $0.reactorUID < $1.reactorUID })
+                        let newValue = grouped[messageID]?.sorted(by: { $0.reactorUID < $1.reactorUID })
+                        if oldValue != newValue {
+                            changedIDs.insert(messageID)
+                        }
+                    }
+
+                    self.messageReactionsByMessageID = grouped
+
+                    for messageID in changedIDs {
+                        let oldReactors = Set((oldMap[messageID] ?? []).map(\.reactorUID))
+                        let newReactors = Set((grouped[messageID] ?? []).map(\.reactorUID))
+                        let removedReactors = oldReactors.subtracting(newReactors)
+                        for reactorUID in removedReactors {
+                            do {
+                                try self.localMessageStore.removeReaction(
+                                    chatID: chatID,
+                                    messageID: messageID,
+                                    reactorUID: reactorUID
+                                )
+                            } catch {
+                                self.emitError(error)
+                            }
+                        }
+                    }
+
+                    self.rebuildMessageMetadata(for: changedIDs, notify: true)
+                }
+            },
+            onCancelled: { [weak self] error in
+                self?.handleObserverCancellation(error)
+            }
+        )
+    }
+
+    func hydrateMessageMetadataFromLocal(for messageIDs: [String]) {
+        guard let chatID = activeChatID else { return }
+        guard !messageIDs.isEmpty else { return }
+
+        do {
+            let idSet = Set(messageIDs)
+            idSet.forEach { id in
+                messageReceiptsByID[id] = nil
+                messageReactionsByMessageID[id] = []
+                outgoingUploadStateByMessageID[id] = nil
+            }
+
+            let receipts = try localMessageStore.fetchReceipts(chatID: chatID, messageIDs: messageIDs)
+            for receipt in receipts {
+                messageReceiptsByID[receipt.messageID] = MessageReceipt(
+                    messageID: receipt.messageID,
+                    senderID: receipt.senderID,
+                    recipientID: receipt.recipientID,
+                    deliveredAt: Date(timeIntervalSince1970: receipt.deliveredAt),
+                    readAt: receipt.readAt.map { Date(timeIntervalSince1970: $0) },
+                    updatedAt: Date(timeIntervalSince1970: receipt.updatedAt)
+                )
+            }
+
+            let reactions = try localMessageStore.fetchReactions(chatID: chatID, messageIDs: messageIDs)
+            for reaction in reactions {
+                let row = MessageReaction(
+                    messageID: reaction.messageID,
+                    reactorUID: reaction.reactorUID,
+                    emoji: reaction.emoji,
+                    updatedAt: Date(timeIntervalSince1970: reaction.updatedAt)
+                )
+                var list = messageReactionsByMessageID[reaction.messageID] ?? []
+                list.removeAll(where: { $0.reactorUID == reaction.reactorUID })
+                list.append(row)
+                messageReactionsByMessageID[reaction.messageID] = list
+            }
+
+            let uploadStates = try localMessageStore.fetchUploadStates(chatID: chatID, messageIDs: messageIDs)
+            uploadStates.forEach { key, value in
+                outgoingUploadStateByMessageID[key] = value
+            }
+
+            for id in idSet where (messageReactionsByMessageID[id] ?? []).isEmpty {
+                messageReactionsByMessageID[id] = []
+            }
+        } catch {
+            emitError(error)
+        }
+    }
+
+    func rebuildMessageMetadata(for messageIDs: Set<String>, notify: Bool) {
+        guard !messageIDs.isEmpty else { return }
+
+        var changedIDs = Set<String>()
+        for messageID in messageIDs {
+            guard let message = messages.first(where: { $0.id == messageID }) else {
+                if messageMetaByID.removeValue(forKey: messageID) != nil {
+                    changedIDs.insert(messageID)
+                }
+                continue
+            }
+
+            let nextMeta = composeMessageMeta(for: message)
+            if messageMetaByID[messageID] != nextMeta {
+                messageMetaByID[messageID] = nextMeta
+                changedIDs.insert(messageID)
+            }
+        }
+
+        guard notify, !changedIDs.isEmpty else { return }
+        notifyOnMain {
+            self.onMessageMetaUpdated?(changedIDs)
+        }
+    }
+
+    func composeMessageMeta(for message: ChatMessage) -> ChatMessageMeta {
+        let timeText = Self.messageTimeFormatter.string(from: message.sentAt)
+        let isOutgoing = message.senderID == currentUserID
+
+        let deliveryState: MessageDeliveryState?
+        if isOutgoing {
+            if let receipt = messageReceiptsByID[message.id] {
+                if receipt.readAt != nil {
+                    deliveryState = .read
+                } else {
+                    deliveryState = .delivered
+                }
+            } else if outgoingUploadStateByMessageID[message.id] == .uploaded {
+                deliveryState = .sent
+            } else {
+                deliveryState = nil
+            }
+        } else {
+            deliveryState = nil
+        }
+
+        let reactions = (messageReactionsByMessageID[message.id] ?? []).sorted {
+            if $0.updatedAt == $1.updatedAt {
+                return $0.reactorUID < $1.reactorUID
+            }
+            return $0.updatedAt < $1.updatedAt
+        }
+
+        return ChatMessageMeta(
+            timeText: timeText,
+            deliveryState: deliveryState,
+            reactions: reactions
+        )
     }
 
     func updateMood(_ mood: MoodStatus) {
@@ -143,6 +546,8 @@ extension ChatViewModel {
             let localMessages = try messageSyncService.loadInitialFromLocal()
             resetMessageState(notify: false)
             localMessages.forEach { _ = appendMessageIfNeeded($0, notify: false) }
+            hydrateMessageMetadataFromLocal(for: localMessages.map(\.id))
+            rebuildMessageMetadata(for: Set(localMessages.map(\.id)), notify: true)
             hasReachedHistoryStart = localMessages.count < Int(AppConfiguration.MessageQueue.localPageSize)
 
             notifyOnMain {
@@ -195,7 +600,7 @@ extension ChatViewModel {
                         continue
                     }
                     emitError(error)
-                    break
+                    continue
                 }
             }
         }
@@ -209,6 +614,9 @@ extension ChatViewModel {
         }
 
         guard inserted > 0 else { return }
+        let allIDs = Set(messages.map(\.id))
+        hydrateMessageMetadataFromLocal(for: Array(allIDs))
+        rebuildMessageMetadata(for: allIDs, notify: true)
         notifyOnMain {
             self.onMessagesUpdated?()
         }
@@ -221,6 +629,8 @@ extension ChatViewModel {
         do {
             let syncResult = try messageSyncService.consumeCloudEnvelope(envelope)
             let inserted = syncResult.inserted && appendMessageIfNeeded(syncResult.message)
+            hydrateMessageMetadataFromLocal(for: [syncResult.message.id])
+            rebuildMessageMetadata(for: [syncResult.message.id], notify: true)
 
             if inserted && envelope.senderID != currentUserID {
                 persistWidgetLatestMessage(syncResult.message.value)
@@ -232,6 +642,8 @@ extension ChatViewModel {
 
                 if let recoveredSync = try? messageSyncService.consumeCloudEnvelope(envelope) {
                     let inserted = recoveredSync.inserted && appendMessageIfNeeded(recoveredSync.message)
+                    hydrateMessageMetadataFromLocal(for: [recoveredSync.message.id])
+                    rebuildMessageMetadata(for: [recoveredSync.message.id], notify: true)
                     if inserted && envelope.senderID != currentUserID {
                         persistWidgetLatestMessage(recoveredSync.message.value)
                         LiveActivityManager.shared.update(text: recoveredSync.message.value, mood: latestPartnerMoodTitle)
@@ -281,6 +693,8 @@ extension ChatViewModel {
 
         if localInserted > 0 {
             isLoadingHistory = false
+            hydrateMessageMetadataFromLocal(for: messages.map(\.id))
+            rebuildMessageMetadata(for: Set(messages.map(\.id)), notify: true)
             notifyOnMain {
                 self.onMessagesPrepended?(localInserted)
             }
@@ -326,6 +740,8 @@ extension ChatViewModel {
                 self.hasReachedHistoryStart = envelopes.count < Int(pageSize + 1) || inserted == 0
 
                 guard inserted > 0 else { return }
+                self.hydrateMessageMetadataFromLocal(for: self.messages.map(\.id))
+                self.rebuildMessageMetadata(for: Set(self.messages.map(\.id)), notify: true)
                 self.notifyOnMain {
                     self.onMessagesPrepended?(inserted)
                 }
@@ -357,6 +773,9 @@ extension ChatViewModel {
             switch result {
             case .success(let optimisticMessage):
                 self.appendMessageIfNeeded(optimisticMessage)
+                self.outgoingUploadStateByMessageID[optimisticMessage.id] = .pendingUpload
+                self.hydrateMessageMetadataFromLocal(for: [optimisticMessage.id])
+                self.rebuildMessageMetadata(for: [optimisticMessage.id], notify: true)
             case .failure(let error):
                 self.emitError(error)
             }
@@ -394,6 +813,13 @@ extension ChatViewModel {
         oldestLoadedSentAt = nil
         isLoadingHistory = false
         hasReachedHistoryStart = false
+        messageMetaByID.removeAll(keepingCapacity: true)
+        messageReceiptsByID.removeAll(keepingCapacity: true)
+        messageReactionsByMessageID.removeAll(keepingCapacity: true)
+        outgoingUploadStateByMessageID.removeAll(keepingCapacity: true)
+        pendingReadReceiptMessageIDs.removeAll(keepingCapacity: true)
+        readReceiptWorkItem?.cancel()
+        readReceiptWorkItem = nil
 
         guard notify else { return }
         notifyOnMain {

@@ -34,6 +34,8 @@ final class ChatViewModel {
     var onHeartbeatReceived: (() -> Void)?
     var onPairingInvalidated: (() -> Void)?
     var onIncomingPendingRequestCountChanged: ((Int) -> Void)?
+    var onIncomingPendingRequestBadgeChanged: ((IncomingRequestBadgeState) -> Void)?
+    var onMessageMetaUpdated: ((Set<String>) -> Void)?
 
     var messages: [ChatMessage] = []
     var state: ScreenState = .idle {
@@ -53,6 +55,8 @@ final class ChatViewModel {
 
     var messageObserver: FirebaseObservationToken?
     var heartbeatObserver: FirebaseObservationToken?
+    var messageReceiptsObserver: FirebaseObservationToken?
+    var messageReactionsObserver: FirebaseObservationToken?
     var ownProfileObserver: FirebaseObservationToken?
     var incomingRequestsObserver: FirebaseObservationToken?
     var profileObserver: FirebaseObservationToken?
@@ -64,6 +68,12 @@ final class ChatViewModel {
     var isLoadingHistory = false
     var hasReachedHistoryStart = false
     var activeChatID: String?
+    var messageMetaByID: [String: ChatMessageMeta] = [:]
+    var messageReceiptsByID: [String: MessageReceipt] = [:]
+    var messageReactionsByMessageID: [String: [MessageReaction]] = [:]
+    var outgoingUploadStateByMessageID: [String: LocalMessageUploadState] = [:]
+    var pendingReadReceiptMessageIDs = Set<String>()
+    var readReceiptWorkItem: DispatchWorkItem?
     var lastUploadedLocation: CLLocation?
     var lastLocationUploadDate: Date?
     var didReportLocationPermissionDenied = false
@@ -117,7 +127,15 @@ final class ChatViewModel {
         self.localMessageStore = localMessageStore
 
         self.messageSyncService.onError = { [weak self] error in
-            self?.emitError(error)
+            self?.handleMessageSyncError(error)
+        }
+
+        self.messageSyncService.onOutgoingUploadStateChanged = { [weak self] messageID, uploadState in
+            guard let self else { return }
+            self.notifyOnMain {
+                self.outgoingUploadStateByMessageID[messageID] = uploadState
+                self.rebuildMessageMetadata(for: [messageID], notify: true)
+            }
         }
 
         self.locationService.onLocationUpdate = { [weak self] location in

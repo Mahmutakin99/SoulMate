@@ -18,6 +18,7 @@ final class ProfileCompletionViewController: UIViewController {
     private let lastNameField = UITextField()
     private let continueButton = UIButton(type: .system)
     private let activity = UIActivityIndicatorView(style: .medium)
+    private let gradientLayer = CAGradientLayer()
 
     init(viewModel: ProfileCompletionViewModel) {
         self.viewModel = viewModel
@@ -30,19 +31,25 @@ final class ProfileCompletionViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
+        AppVisualTheme.applyBackground(to: view, gradientLayer: gradientLayer)
         title = L10n.t("profile.nav_title")
         setupUI()
         bindViewModel()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        gradientLayer.frame = view.bounds
     }
 
     private func setupUI() {
         titleLabel.text = L10n.t("profile.title")
         titleLabel.font = UIFont(name: "AvenirNext-Bold", size: 32) ?? .systemFont(ofSize: 32, weight: .bold)
         titleLabel.textAlignment = .center
+        titleLabel.textColor = AppVisualTheme.textPrimary
 
         subtitleLabel.text = L10n.t("profile.subtitle")
-        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.textColor = AppVisualTheme.textSecondary
         subtitleLabel.font = UIFont(name: "AvenirNext-Medium", size: 15) ?? .systemFont(ofSize: 15, weight: .medium)
         subtitleLabel.textAlignment = .center
 
@@ -52,7 +59,7 @@ final class ProfileCompletionViewController: UIViewController {
         var configuration = UIButton.Configuration.filled()
         configuration.cornerStyle = .capsule
         configuration.title = L10n.t("profile.button.continue")
-        configuration.baseBackgroundColor = UIColor(red: 0.86, green: 0.18, blue: 0.44, alpha: 1)
+        configuration.baseBackgroundColor = AppVisualTheme.accent
         continueButton.configuration = configuration
         continueButton.addTarget(self, action: #selector(continueTapped), for: .touchUpInside)
 
@@ -88,8 +95,13 @@ final class ProfileCompletionViewController: UIViewController {
         field.layer.cornerRadius = 12
         field.layer.cornerCurve = .continuous
         field.layer.borderWidth = 1
-        field.layer.borderColor = UIColor.systemGray5.cgColor
-        field.backgroundColor = UIColor.secondarySystemBackground
+        field.layer.borderColor = AppVisualTheme.fieldBorder.cgColor
+        field.backgroundColor = AppVisualTheme.fieldBackground
+        field.textColor = AppVisualTheme.textPrimary
+        field.attributedPlaceholder = NSAttributedString(
+            string: placeholder,
+            attributes: [.foregroundColor: AppVisualTheme.textSecondary]
+        )
         field.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 1))
         field.leftViewMode = .always
     }

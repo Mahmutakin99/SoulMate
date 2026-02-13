@@ -1,0 +1,43 @@
+[debug] [2026-02-13T19:14:41.672Z] ----------------------------------------------------------------------
+[debug] [2026-02-13T19:14:41.695Z] Command:       /opt/homebrew/Cellar/node/25.5.0/bin/node /opt/homebrew/bin/firebase deploy --only database
+[debug] [2026-02-13T19:14:41.695Z] CLI Version:   15.5.1
+[debug] [2026-02-13T19:14:41.696Z] Platform:      darwin
+[debug] [2026-02-13T19:14:41.696Z] Node Version:  v25.5.0
+[debug] [2026-02-13T19:14:41.697Z] Time:          Fri Feb 13 2026 22:14:41 GMT+0300 (Türkiye Standard Time)
+[debug] [2026-02-13T19:14:41.697Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-02-13T19:14:50.725Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-02-13T19:14:50.738Z] > authorizing via signed-in user (mahmutakn03@gmail.com)
+[debug] [2026-02-13T19:14:50.739Z] [iam] checking project soulmate-62104 for permissions ["firebase.projects.get","firebasedatabase.instances.update"]
+[debug] [2026-02-13T19:14:50.782Z] Checked if tokens are valid: false, expires at: 1771009671122
+[debug] [2026-02-13T19:14:50.785Z] Checked if tokens are valid: false, expires at: 1771009671122
+[debug] [2026-02-13T19:14:50.787Z] > refreshing access token with scopes: []
+[debug] [2026-02-13T19:14:50.823Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-02-13T19:14:50.824Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-02-13T19:14:51.647Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-02-13T19:14:51.681Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-02-13T19:14:51.750Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/soulmate-62104:testIamPermissions [none]
+[debug] [2026-02-13T19:14:51.751Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/soulmate-62104:testIamPermissions  x-goog-user-project=soulmate-62104
+[debug] [2026-02-13T19:14:51.751Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/soulmate-62104:testIamPermissions {"permissions":["firebase.projects.get","firebasedatabase.instances.update"]}
+[debug] [2026-02-13T19:15:16.844Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/soulmate-62104:testIamPermissions 200
+[debug] [2026-02-13T19:15:16.853Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/soulmate-62104:testIamPermissions {"permissions":["firebase.projects.get","firebasedatabase.instances.update"]}
+[debug] [2026-02-13T19:15:16.871Z] Checked if tokens are valid: true, expires at: 1771013690682
+[debug] [2026-02-13T19:15:16.871Z] Checked if tokens are valid: true, expires at: 1771013690682
+[debug] [2026-02-13T19:15:16.877Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/soulmate-62104 [none]
+[debug] [2026-02-13T19:15:18.021Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/soulmate-62104 200
+[debug] [2026-02-13T19:15:18.022Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/soulmate-62104 {"projectId":"soulmate-62104","projectNumber":"224288280944","displayName":"SoulMate","name":"projects/soulmate-62104","resources":{"hostingSite":"soulmate-62104","realtimeDatabaseInstance":"soulmate-62104-default-rtdb"},"state":"ACTIVE","etag":"1_de064c24-d8a1-4602-965a-eb56ff842156"}
+[info] 
+[info] === Deploying to 'soulmate-62104'...
+[info] 
+[info] i  deploying database 
+[info] i  database: checking rules syntax... 
+[debug] [2026-02-13T19:15:18.044Z] Checked if tokens are valid: true, expires at: 1771013690682
+[debug] [2026-02-13T19:15:18.045Z] Checked if tokens are valid: true, expires at: 1771013690682
+[debug] [2026-02-13T19:15:18.045Z] >>> [apiv2][query] GET https://firebasedatabase.googleapis.com/v1beta/projects/soulmate-62104/locations/-/instances/soulmate-62104-default-rtdb [none]
+[debug] [2026-02-13T19:15:28.160Z] *** [apiv2] error from fetch(https://firebasedatabase.googleapis.com/v1beta/projects/soulmate-62104/locations/-/instances/soulmate-62104-default-rtdb, {"headers":{},"method":"GET","signal":{"reason":""}}): AbortError: The user aborted a request.
+[debug] [2026-02-13T19:15:28.174Z] Timeout reached making request to https://firebasedatabase.googleapis.com/v1beta/projects/soulmate-62104/locations/-/instances/soulmate-62104-default-rtdb
+[debug] [2026-02-13T19:15:28.197Z] FirebaseError: Timeout reached making request to https://firebasedatabase.googleapis.com/v1beta/projects/soulmate-62104/locations/-/instances/soulmate-62104-default-rtdb
+    at RetryOperation._fn (/opt/homebrew/Cellar/firebase-cli/15.5.1/libexec/lib/node_modules/firebase-tools/lib/apiv2.js:275:35)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+[error] 
+[error] Error: Failed to get instance details for instance: soulmate-62104-default-rtdb. See firebase-debug.log for more details.

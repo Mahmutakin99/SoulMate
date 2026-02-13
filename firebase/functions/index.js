@@ -15,6 +15,7 @@ const CALLABLE_REGION = "europe-west1";
 const DATABASE_TRIGGER_REGION = "us-central1";
 const REQUEST_EXPIRY_SECONDS = 24 * 60 * 60;
 const CLOUD_MESSAGE_TTL_SECONDS = 7 * 24 * 60 * 60;
+const REQUEST_DUPLICATE_SCAN_LIMIT = 200;
 
 const REQUEST_TYPE = {
   PAIR: "pair",
@@ -60,6 +61,25 @@ function requestChatID(uidA, uidB) {
   return [uidA, uidB].sort().join("_");
 }
 
+async function ensureMutualPairForChat(uid, chatID) {
+  const profile = await loadUserProfile(uid);
+  const partnerUID = readPartnerID(profile);
+  if (!partnerUID) {
+    throw new HttpsError("failed-precondition", "not_mutual_pair");
+  }
+
+  const partnerProfile = await loadUserProfile(partnerUID);
+  if (readPartnerID(partnerProfile) !== uid) {
+    throw new HttpsError("failed-precondition", "not_mutual_pair");
+  }
+
+  if (requestChatID(uid, partnerUID) !== chatID) {
+    throw new HttpsError("failed-precondition", "chat_mismatch");
+  }
+
+  return partnerUID;
+}
+
 function readInstallationID(data) {
   return normalizedString(data?.installationID);
 }
@@ -89,6 +109,7 @@ async function hasPendingRequestBetween(fromUID, toUID, type) {
     .ref("/relationshipRequests")
     .orderByChild("fromUID")
     .equalTo(fromUID)
+    .limitToLast(REQUEST_DUPLICATE_SCAN_LIMIT)
     .get();
 
   if (!snap.exists()) {
@@ -213,7 +234,120 @@ exports.ackMessageStored = onCall(
       throw new HttpsError("failed-precondition", "ack_forbidden");
     }
 
-    await messageRef.remove();
+    const receiptRef = admin.database().ref(`/events/${chatID}/messageReceipts/${messageID}`);
+    const existingReceiptSnap = await receiptRef.get();
+    const existingReceipt = existingReceiptSnap.val() || {};
+    const now = nowSeconds();
+    const deliveredAt = Number(existingReceipt.deliveredAt || 0) > 0
+      ? Number(existingReceipt.deliveredAt)
+      : now;
+    const readAt = Number(existingReceipt.readAt || 0) > 0
+      ? Number(existingReceipt.readAt)
+      : null;
+
+    const updates = {
+      [`/events/${chatID}/messageReceipts/${messageID}/senderID`]: normalizedString(message.senderID),
+      [`/events/${chatID}/messageReceipts/${messageID}/recipientID`]: normalizedString(message.recipientID),
+      [`/events/${chatID}/messageReceipts/${messageID}/deliveredAt`]: deliveredAt,
+      [`/events/${chatID}/messageReceipts/${messageID}/updatedAt`]: now,
+      [`/events/${chatID}/messageReceipts/${messageID}/readAt`]: readAt,
+      [`/chats/${chatID}/messages/${messageID}`]: null
+    };
+
+    await admin.database().ref().update(updates);
+    return { success: true, deliveredAt };
+  }
+);
+
+exports.markMessageRead = onCall(
+  { region: CALLABLE_REGION },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "auth_required");
+    }
+
+    const chatID = normalizedString(request.data?.chatID);
+    const messageID = normalizedString(request.data?.messageID);
+    if (!chatID || !messageID) {
+      throw new HttpsError("invalid-argument", "invalid_read_receipt_input");
+    }
+
+    const receiptRef = admin.database().ref(`/events/${chatID}/messageReceipts/${messageID}`);
+    const receiptSnap = await receiptRef.get();
+    if (!receiptSnap.exists()) {
+      return { success: true, alreadyRead: true, receiptMissing: true };
+    }
+
+    const receipt = receiptSnap.val() || {};
+    if (normalizedString(receipt.recipientID) !== uid) {
+      throw new HttpsError("failed-precondition", "read_forbidden");
+    }
+
+    const existingReadAt = Number(receipt.readAt || 0);
+    if (existingReadAt > 0) {
+      return { success: true, alreadyRead: true };
+    }
+
+    const now = nowSeconds();
+    await receiptRef.update({
+      readAt: now,
+      updatedAt: now
+    });
+
+    return { success: true, readAt: now };
+  }
+);
+
+exports.setMessageReaction = onCall(
+  { region: CALLABLE_REGION },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "auth_required");
+    }
+
+    const chatID = normalizedString(request.data?.chatID);
+    const messageID = normalizedString(request.data?.messageID);
+    const ciphertext = normalizedString(request.data?.ciphertext);
+    const keyVersion = Number(request.data?.keyVersion || 0);
+
+    if (!chatID || !messageID || !ciphertext || !Number.isFinite(keyVersion) || keyVersion <= 0) {
+      throw new HttpsError("invalid-argument", "invalid_reaction_input");
+    }
+
+    await ensureMutualPairForChat(uid, chatID);
+
+    const now = nowSeconds();
+    const reactionRef = admin.database().ref(`/events/${chatID}/messageReactions/${messageID}/${uid}`);
+    await reactionRef.set({
+      ciphertext,
+      keyVersion,
+      updatedAt: now
+    });
+
+    return { success: true, updatedAt: now };
+  }
+);
+
+exports.clearMessageReaction = onCall(
+  { region: CALLABLE_REGION },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "auth_required");
+    }
+
+    const chatID = normalizedString(request.data?.chatID);
+    const messageID = normalizedString(request.data?.messageID);
+    if (!chatID || !messageID) {
+      throw new HttpsError("invalid-argument", "invalid_reaction_input");
+    }
+
+    await ensureMutualPairForChat(uid, chatID);
+
+    const reactionRef = admin.database().ref(`/events/${chatID}/messageReactions/${messageID}/${uid}`);
+    await reactionRef.remove();
     return { success: true };
   }
 );
@@ -226,38 +360,95 @@ exports.cleanupExpiredTransientMessages = onSchedule(
   },
   async () => {
     const cutoff = nowSeconds() - CLOUD_MESSAGE_TTL_SECONDS;
-    const chatsSnapshot = await admin.database().ref("/chats").get();
-    if (!chatsSnapshot.exists()) {
+
+    // Shallow query: fetch only chat IDs, not entire message trees
+    const chatsShallow = await admin.database()
+      .ref("/chats")
+      .get();
+
+    if (!chatsShallow.exists()) {
+      logger.info("Transient message cleanup: no chats found.");
+      return;
+    }
+
+    const chatIDs = Object.keys(chatsShallow.val() || {});
+    let totalDeleted = 0;
+
+    for (const chatID of chatIDs) {
+      // Query only messages older than the cutoff
+      const expiredSnap = await admin.database()
+        .ref(`/chats/${chatID}/messages`)
+        .orderByChild("sentAt")
+        .endAt(cutoff)
+        .get();
+
+      if (!expiredSnap.exists()) {
+        continue;
+      }
+
+      const updates = {};
+      let batchCount = 0;
+      expiredSnap.forEach((messageSnap) => {
+        const sentAt = Number(messageSnap.val()?.sentAt || 0);
+        if (sentAt > 0 && sentAt <= cutoff) {
+          updates[`/chats/${chatID}/messages/${messageSnap.key}`] = null;
+          batchCount += 1;
+        }
+      });
+
+      if (batchCount > 0) {
+        await admin.database().ref().update(updates);
+        totalDeleted += batchCount;
+      }
+    }
+
+    logger.info("Transient message cleanup completed.", {
+      deletedMessages: totalDeleted,
+      chatCount: chatIDs.length,
+      cutoff
+    });
+  }
+);
+
+exports.cleanupExpiredRelationshipRequests = onSchedule(
+  {
+    region: DATABASE_TRIGGER_REGION,
+    schedule: "every 12 hours",
+    timeZone: "Etc/UTC"
+  },
+  async () => {
+    const now = nowSeconds();
+
+    // Fetch only expired pending requests
+    const expiredSnap = await admin.database()
+      .ref("/relationshipRequests")
+      .orderByChild("expiresAt")
+      .endAt(now)
+      .get();
+
+    if (!expiredSnap.exists()) {
+      logger.info("Relationship request cleanup: nothing to clean.");
       return;
     }
 
     const updates = {};
-    let deleteCount = 0;
+    let marked = 0;
 
-    chatsSnapshot.forEach((chatSnap) => {
-      const chatID = chatSnap.key;
-      const messages = chatSnap.child("messages");
-      if (!messages.exists()) {
-        return;
+    expiredSnap.forEach((snap) => {
+      const data = snap.val();
+      if (data && data.status === REQUEST_STATUS.PENDING) {
+        updates[`/relationshipRequests/${snap.key}/status`] = REQUEST_STATUS.EXPIRED;
+        updates[`/relationshipRequests/${snap.key}/resolvedAt`] = now;
+        marked += 1;
       }
-
-      messages.forEach((messageSnap) => {
-        const message = messageSnap.val() || {};
-        const sentAt = Number(message.sentAt || 0);
-        if (sentAt > 0 && sentAt <= cutoff) {
-          updates[`/chats/${chatID}/messages/${messageSnap.key}`] = null;
-          deleteCount += 1;
-        }
-      });
     });
 
-    if (deleteCount > 0) {
+    if (marked > 0) {
       await admin.database().ref().update(updates);
     }
 
-    logger.info("Transient message cleanup completed.", {
-      deletedMessages: deleteCount,
-      cutoff
+    logger.info("Expired relationship request cleanup completed.", {
+      markedExpired: marked
     });
   }
 );

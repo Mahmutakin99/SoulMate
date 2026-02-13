@@ -37,6 +37,7 @@ enum LocalMessageUploadState: String {
     case pendingUpload
     case uploaded
     case failed
+    case blocked
 }
 
 struct LocalPendingUpload {
@@ -48,6 +49,22 @@ struct LocalPendingUpload {
     let payloadType: ChatPayloadType
     let payloadValue: String
     let isSecret: Bool
+}
+
+struct LocalStoredReceipt {
+    let messageID: String
+    let senderID: String
+    let recipientID: String
+    let deliveredAt: TimeInterval
+    let readAt: TimeInterval?
+    let updatedAt: TimeInterval
+}
+
+struct LocalStoredReaction {
+    let messageID: String
+    let reactorUID: String
+    let emoji: String
+    let updatedAt: TimeInterval
 }
 
 final class LocalMessageStore {
@@ -142,6 +159,10 @@ final class LocalMessageStore {
 
     func markUploadFailed(messageID: String) throws {
         try updateUploadState(messageID: messageID, state: .failed)
+    }
+
+    func markUploadBlocked(messageID: String) throws {
+        try updateUploadState(messageID: messageID, state: .blocked)
     }
 
     func fetchRecent(chatID: String, limit: UInt) throws -> [ChatMessage] {
@@ -265,20 +286,290 @@ final class LocalMessageStore {
         }
     }
 
-    func deleteConversation(chatID: String) throws {
+    func fetchUploadStates(chatID: String, messageIDs: [String]) throws -> [String: LocalMessageUploadState] {
+        guard !messageIDs.isEmpty else { return [:] }
+
+        return try queue.sync {
+            guard let db else { throw LocalMessageStoreError.databaseUnavailable }
+            let placeholders = Array(repeating: "?", count: messageIDs.count).joined(separator: ",")
+            let sql = """
+            SELECT id, upload_state
+            FROM local_messages
+            WHERE chat_id = ? AND id IN (\(placeholders));
+            """
+
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK,
+                  let statement else {
+                throw LocalMessageStoreError.statementPreparationFailed
+            }
+            defer { sqlite3_finalize(statement) }
+
+            sqlite3_bind_text(statement, 1, chatID, -1, SQLITE_TRANSIENT)
+            for (index, id) in messageIDs.enumerated() {
+                sqlite3_bind_text(statement, Int32(index + 2), id, -1, SQLITE_TRANSIENT)
+            }
+
+            var states: [String: LocalMessageUploadState] = [:]
+            while sqlite3_step(statement) == SQLITE_ROW {
+                guard let messageID = sqliteString(statement, index: 0),
+                      let stateRaw = sqliteString(statement, index: 1),
+                      let state = LocalMessageUploadState(rawValue: stateRaw) else {
+                    continue
+                }
+                states[messageID] = state
+            }
+            return states
+        }
+    }
+
+    func upsertReceipt(
+        chatID: String,
+        messageID: String,
+        senderID: String,
+        recipientID: String,
+        deliveredAt: TimeInterval,
+        readAt: TimeInterval?,
+        updatedAt: TimeInterval
+    ) throws {
         try queue.sync {
             guard let db else { throw LocalMessageStoreError.databaseUnavailable }
+            let sql = """
+            INSERT INTO local_message_receipts (
+                chat_id, message_id, sender_id, recipient_id, delivered_at, read_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(message_id) DO UPDATE SET
+                chat_id = excluded.chat_id,
+                sender_id = excluded.sender_id,
+                recipient_id = excluded.recipient_id,
+                delivered_at = excluded.delivered_at,
+                read_at = excluded.read_at,
+                updated_at = excluded.updated_at;
+            """
 
-            let sql = "DELETE FROM local_messages WHERE chat_id = ?;"
             let statement = try statement(
                 db: db,
-                key: "deleteConversation",
+                key: "upsertReceipt",
                 sql: sql
             )
 
             sqlite3_bind_text(statement, 1, chatID, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(statement, 2, messageID, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(statement, 3, senderID, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(statement, 4, recipientID, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_double(statement, 5, deliveredAt)
+            if let readAt {
+                sqlite3_bind_double(statement, 6, readAt)
+            } else {
+                sqlite3_bind_null(statement, 6)
+            }
+            sqlite3_bind_double(statement, 7, updatedAt)
+
             guard sqlite3_step(statement) == SQLITE_DONE else {
                 throw LocalMessageStoreError.executionFailed
+            }
+        }
+    }
+
+    func markRead(messageID: String, readAt: TimeInterval, updatedAt: TimeInterval) throws {
+        try queue.sync {
+            guard let db else { throw LocalMessageStoreError.databaseUnavailable }
+            let sql = """
+            UPDATE local_message_receipts
+            SET read_at = ?, updated_at = ?
+            WHERE message_id = ?;
+            """
+            let statement = try statement(
+                db: db,
+                key: "markReceiptRead",
+                sql: sql
+            )
+
+            sqlite3_bind_double(statement, 1, readAt)
+            sqlite3_bind_double(statement, 2, updatedAt)
+            sqlite3_bind_text(statement, 3, messageID, -1, SQLITE_TRANSIENT)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw LocalMessageStoreError.executionFailed
+            }
+        }
+    }
+
+    func fetchReceipts(chatID: String, messageIDs: [String]) throws -> [LocalStoredReceipt] {
+        guard !messageIDs.isEmpty else { return [] }
+
+        return try queue.sync {
+            guard let db else { throw LocalMessageStoreError.databaseUnavailable }
+            let placeholders = Array(repeating: "?", count: messageIDs.count).joined(separator: ",")
+            let sql = """
+            SELECT message_id, sender_id, recipient_id, delivered_at, read_at, updated_at
+            FROM local_message_receipts
+            WHERE chat_id = ? AND message_id IN (\(placeholders));
+            """
+
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK,
+                  let statement else {
+                throw LocalMessageStoreError.statementPreparationFailed
+            }
+            defer { sqlite3_finalize(statement) }
+
+            sqlite3_bind_text(statement, 1, chatID, -1, SQLITE_TRANSIENT)
+            for (index, id) in messageIDs.enumerated() {
+                sqlite3_bind_text(statement, Int32(index + 2), id, -1, SQLITE_TRANSIENT)
+            }
+
+            var rows: [LocalStoredReceipt] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                guard let messageID = sqliteString(statement, index: 0),
+                      let senderID = sqliteString(statement, index: 1),
+                      let recipientID = sqliteString(statement, index: 2) else {
+                    continue
+                }
+
+                let deliveredAt = sqlite3_column_double(statement, 3)
+                let readAt = sqlite3_column_type(statement, 4) == SQLITE_NULL
+                    ? nil
+                    : sqlite3_column_double(statement, 4)
+                let updatedAt = sqlite3_column_double(statement, 5)
+                rows.append(
+                    LocalStoredReceipt(
+                        messageID: messageID,
+                        senderID: senderID,
+                        recipientID: recipientID,
+                        deliveredAt: deliveredAt,
+                        readAt: readAt,
+                        updatedAt: updatedAt
+                    )
+                )
+            }
+            return rows
+        }
+    }
+
+    func upsertReaction(
+        chatID: String,
+        messageID: String,
+        reactorUID: String,
+        emoji: String,
+        updatedAt: TimeInterval
+    ) throws {
+        try queue.sync {
+            guard let db else { throw LocalMessageStoreError.databaseUnavailable }
+            let sql = """
+            INSERT INTO local_message_reactions (
+                chat_id, message_id, reactor_uid, emoji, updated_at
+            ) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(chat_id, message_id, reactor_uid) DO UPDATE SET
+                emoji = excluded.emoji,
+                updated_at = excluded.updated_at;
+            """
+            let statement = try statement(
+                db: db,
+                key: "upsertReaction",
+                sql: sql
+            )
+
+            sqlite3_bind_text(statement, 1, chatID, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(statement, 2, messageID, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(statement, 3, reactorUID, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(statement, 4, emoji, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_double(statement, 5, updatedAt)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw LocalMessageStoreError.executionFailed
+            }
+        }
+    }
+
+    func removeReaction(chatID: String, messageID: String, reactorUID: String) throws {
+        try queue.sync {
+            guard let db else { throw LocalMessageStoreError.databaseUnavailable }
+            let sql = """
+            DELETE FROM local_message_reactions
+            WHERE chat_id = ? AND message_id = ? AND reactor_uid = ?;
+            """
+            let statement = try statement(
+                db: db,
+                key: "removeReaction",
+                sql: sql
+            )
+
+            sqlite3_bind_text(statement, 1, chatID, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(statement, 2, messageID, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(statement, 3, reactorUID, -1, SQLITE_TRANSIENT)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw LocalMessageStoreError.executionFailed
+            }
+        }
+    }
+
+    func fetchReactions(chatID: String, messageIDs: [String]) throws -> [LocalStoredReaction] {
+        guard !messageIDs.isEmpty else { return [] }
+
+        return try queue.sync {
+            guard let db else { throw LocalMessageStoreError.databaseUnavailable }
+            let placeholders = Array(repeating: "?", count: messageIDs.count).joined(separator: ",")
+            let sql = """
+            SELECT message_id, reactor_uid, emoji, updated_at
+            FROM local_message_reactions
+            WHERE chat_id = ? AND message_id IN (\(placeholders));
+            """
+
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK,
+                  let statement else {
+                throw LocalMessageStoreError.statementPreparationFailed
+            }
+            defer { sqlite3_finalize(statement) }
+
+            sqlite3_bind_text(statement, 1, chatID, -1, SQLITE_TRANSIENT)
+            for (index, id) in messageIDs.enumerated() {
+                sqlite3_bind_text(statement, Int32(index + 2), id, -1, SQLITE_TRANSIENT)
+            }
+
+            var rows: [LocalStoredReaction] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                guard let messageID = sqliteString(statement, index: 0),
+                      let reactorUID = sqliteString(statement, index: 1),
+                      let emoji = sqliteString(statement, index: 2) else {
+                    continue
+                }
+
+                rows.append(
+                    LocalStoredReaction(
+                        messageID: messageID,
+                        reactorUID: reactorUID,
+                        emoji: emoji,
+                        updatedAt: sqlite3_column_double(statement, 3)
+                    )
+                )
+            }
+            return rows
+        }
+    }
+
+    func deleteConversation(chatID: String) throws {
+        try queue.sync {
+            guard let db else { throw LocalMessageStoreError.databaseUnavailable }
+
+            let statements: [(key: String, sql: String)] = [
+                ("deleteConversationMessages", "DELETE FROM local_messages WHERE chat_id = ?;"),
+                ("deleteConversationReceipts", "DELETE FROM local_message_receipts WHERE chat_id = ?;"),
+                ("deleteConversationReactions", "DELETE FROM local_message_reactions WHERE chat_id = ?;")
+            ]
+
+            for item in statements {
+                let statement = try statement(
+                    db: db,
+                    key: item.key,
+                    sql: item.sql
+                )
+                sqlite3_bind_text(statement, 1, chatID, -1, SQLITE_TRANSIENT)
+                guard sqlite3_step(statement) == SQLITE_DONE else {
+                    throw LocalMessageStoreError.executionFailed
+                }
             }
         }
     }
@@ -299,6 +590,41 @@ final class LocalMessageStore {
                 throw LocalMessageStoreError.executionFailed
             }
             return Int(sqlite3_column_int64(statement, 0))
+        }
+    }
+
+    func existingMessageIDs(chatID: String, ids: [String]) throws -> Set<String> {
+        guard !ids.isEmpty else { return [] }
+
+        return try queue.sync {
+            guard let db else { throw LocalMessageStoreError.databaseUnavailable }
+
+            let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
+            let sql = """
+            SELECT id
+            FROM local_messages
+            WHERE chat_id = ? AND id IN (\(placeholders));
+            """
+
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK,
+                  let statement else {
+                throw LocalMessageStoreError.statementPreparationFailed
+            }
+            defer { sqlite3_finalize(statement) }
+
+            sqlite3_bind_text(statement, 1, chatID, -1, SQLITE_TRANSIENT)
+            for (index, id) in ids.enumerated() {
+                sqlite3_bind_text(statement, Int32(index + 2), id, -1, SQLITE_TRANSIENT)
+            }
+
+            var existing: Set<String> = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                if let id = sqliteString(statement, index: 0) {
+                    existing.insert(id)
+                }
+            }
+            return existing
         }
     }
 
@@ -448,8 +774,44 @@ final class LocalMessageStore {
         let createChatSentIndex = "CREATE INDEX IF NOT EXISTS idx_local_messages_chat_sent ON local_messages(chat_id, sent_at DESC);"
         let createChatIDIndex = "CREATE INDEX IF NOT EXISTS idx_local_messages_chat_id ON local_messages(chat_id, id);"
         let createUploadIndex = "CREATE INDEX IF NOT EXISTS idx_local_messages_upload_state ON local_messages(upload_state, created_at);"
+        let createReceiptsTable = """
+        CREATE TABLE IF NOT EXISTS local_message_receipts (
+            chat_id TEXT NOT NULL,
+            message_id TEXT PRIMARY KEY,
+            sender_id TEXT NOT NULL,
+            recipient_id TEXT NOT NULL,
+            delivered_at REAL NOT NULL,
+            read_at REAL,
+            updated_at REAL NOT NULL
+        );
+        """
+        let createReceiptsChatIndex = "CREATE INDEX IF NOT EXISTS idx_local_message_receipts_chat_message ON local_message_receipts(chat_id, message_id);"
+        let createReceiptsUpdatedIndex = "CREATE INDEX IF NOT EXISTS idx_local_message_receipts_updated ON local_message_receipts(chat_id, updated_at);"
+        let createReactionsTable = """
+        CREATE TABLE IF NOT EXISTS local_message_reactions (
+            chat_id TEXT NOT NULL,
+            message_id TEXT NOT NULL,
+            reactor_uid TEXT NOT NULL,
+            emoji TEXT NOT NULL,
+            updated_at REAL NOT NULL,
+            PRIMARY KEY (chat_id, message_id, reactor_uid)
+        );
+        """
+        let createReactionsMessageIndex = "CREATE INDEX IF NOT EXISTS idx_local_message_reactions_message ON local_message_reactions(chat_id, message_id);"
+        let createReactionsUpdatedIndex = "CREATE INDEX IF NOT EXISTS idx_local_message_reactions_updated ON local_message_reactions(chat_id, updated_at);"
 
-        for sql in [createTable, createChatSentIndex, createChatIDIndex, createUploadIndex] {
+        for sql in [
+            createTable,
+            createChatSentIndex,
+            createChatIDIndex,
+            createUploadIndex,
+            createReceiptsTable,
+            createReceiptsChatIndex,
+            createReceiptsUpdatedIndex,
+            createReactionsTable,
+            createReactionsMessageIndex,
+            createReactionsUpdatedIndex
+        ] {
             if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
                 throw LocalMessageStoreError.executionFailed
             }

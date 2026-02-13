@@ -59,7 +59,7 @@ final class ScratchRevealView: UIView {
         backgroundColor = .clear
         isUserInteractionEnabled = true
 
-        coverView.backgroundColor = UIColor.black.withAlphaComponent(0.88)
+        coverView.backgroundColor = UIColor.black.withAlphaComponent(1)
         coverView.translatesAutoresizingMaskIntoConstraints = false
         coverView.layer.cornerRadius = 20
         addSubview(coverView)

@@ -235,23 +235,63 @@ extension ChatViewController {
     }
 
     func updateDetailsBadge(count: Int) {
-        let normalizedCount = max(0, count)
+        updateDetailsBadge(
+            state: IncomingRequestBadgeState(
+                total: max(0, count),
+                pairCount: max(0, count),
+                unpairCount: 0
+            )
+        )
+    }
+
+    func updateDetailsBadge(state: IncomingRequestBadgeState) {
+        let previousTotal = incomingRequestBadgeState.total
+        let normalizedTotal = max(0, state.total)
+        incomingRequestBadgeState = IncomingRequestBadgeState(
+            total: normalizedTotal,
+            pairCount: max(0, state.pairCount),
+            unpairCount: max(0, state.unpairCount)
+        )
+
         let badgeText: String?
-        if normalizedCount <= 0 {
+        if normalizedTotal <= 0 {
             badgeText = nil
-        } else if normalizedCount >= 100 {
+        } else if normalizedTotal >= 100 {
             badgeText = "99+"
         } else {
-            badgeText = "\(normalizedCount)"
+            badgeText = "\(normalizedTotal)"
         }
 
         accountBadgeLabel.text = badgeText
         accountBadgeLabel.isHidden = badgeText == nil
+        accountBadgeLabel.backgroundColor = incomingRequestBadgeState.unpairCount > 0
+            ? UIColor(red: 0.91, green: 0.24, blue: 0.27, alpha: 0.98)
+            : UIColor(red: 0.21, green: 0.70, blue: 0.36, alpha: 0.98)
 
         if let badgeText {
             accountButton.accessibilityLabel = L10n.f("chat.account.badge.accessibility_format", badgeText)
         } else {
             accountButton.accessibilityLabel = L10n.t("chat.account.accessibility")
+        }
+
+        guard normalizedTotal > 0 else {
+            accountBadgeLabel.layer.removeAllAnimations()
+            accountBadgeLabel.transform = .identity
+            return
+        }
+        if normalizedTotal > previousTotal {
+            accountBadgeLabel.layer.removeAllAnimations()
+            accountBadgeLabel.transform = .identity
+            accountBadgeLabel.alpha = 0.96
+            UIView.animate(withDuration: 0.14, animations: {
+                self.accountBadgeLabel.transform = CGAffineTransform(scaleX: 1.12, y: 1.12)
+                self.accountBadgeLabel.alpha = 1
+            }) { _ in
+                UIView.animate(withDuration: 0.16) {
+                    self.accountBadgeLabel.transform = .identity
+                    self.accountBadgeLabel.alpha = 0.98
+                }
+            }
         }
     }
 

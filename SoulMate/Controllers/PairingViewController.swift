@@ -26,6 +26,7 @@ final class PairingViewController: UIViewController {
     private let emptyRequestsLabel = UILabel()
     private let requestsTableView = UITableView(frame: .zero, style: .insetGrouped)
     private let activity = UIActivityIndicatorView(style: .medium)
+    private let gradientLayer = CAGradientLayer()
 
     private let relativeDateFormatter = RelativeDateTimeFormatter()
     private var incomingRequests: [RelationshipRequest] = []
@@ -44,12 +45,17 @@ final class PairingViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
+        AppVisualTheme.applyBackground(to: view, gradientLayer: gradientLayer)
         title = L10n.t("pairing.nav_title")
         configureNavigationItems()
         setupUI()
         bindViewModel()
         viewModel.start()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        gradientLayer.frame = view.bounds
     }
 
     private func configureNavigationItems() {
@@ -70,11 +76,12 @@ final class PairingViewController: UIViewController {
         titleLabel.text = L10n.t("pairing.title")
         titleLabel.font = UIFont(name: "AvenirNext-Bold", size: 32) ?? .systemFont(ofSize: 32, weight: .bold)
         titleLabel.textAlignment = .center
+        titleLabel.textColor = AppVisualTheme.textPrimary
 
         statusLabel.numberOfLines = 0
         statusLabel.textAlignment = .center
         statusLabel.font = UIFont(name: "AvenirNext-Medium", size: 15) ?? .systemFont(ofSize: 15, weight: .medium)
-        statusLabel.textColor = .secondaryLabel
+        statusLabel.textColor = AppVisualTheme.textSecondary
         statusLabel.text = L10n.t("pairing.status.initial_loading")
 
         pairCodeCard.textAlignment = .center
@@ -82,7 +89,8 @@ final class PairingViewController: UIViewController {
         pairCodeCard.layer.cornerRadius = 14
         pairCodeCard.layer.cornerCurve = .continuous
         pairCodeCard.clipsToBounds = true
-        pairCodeCard.backgroundColor = UIColor.secondarySystemBackground
+        pairCodeCard.backgroundColor = AppVisualTheme.softCardBackground
+        pairCodeCard.textColor = AppVisualTheme.textPrimary
         pairCodeCard.text = L10n.t("pairing.pair_code.default")
 
         partnerCodeField.placeholder = L10n.t("pairing.partner_code.placeholder")
@@ -91,15 +99,16 @@ final class PairingViewController: UIViewController {
         partnerCodeField.layer.cornerRadius = 12
         partnerCodeField.layer.cornerCurve = .continuous
         partnerCodeField.layer.borderWidth = 1
-        partnerCodeField.layer.borderColor = UIColor.systemGray5.cgColor
-        partnerCodeField.backgroundColor = UIColor.secondarySystemBackground
+        partnerCodeField.layer.borderColor = AppVisualTheme.fieldBorder.cgColor
+        partnerCodeField.backgroundColor = AppVisualTheme.fieldBackground
+        partnerCodeField.textColor = AppVisualTheme.textPrimary
         partnerCodeField.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 1))
         partnerCodeField.leftViewMode = .always
         partnerCodeField.translatesAutoresizingMaskIntoConstraints = false
 
         var pairConfig = UIButton.Configuration.filled()
         pairConfig.cornerStyle = .capsule
-        pairConfig.baseBackgroundColor = UIColor(red: 0.86, green: 0.18, blue: 0.44, alpha: 1)
+        pairConfig.baseBackgroundColor = AppVisualTheme.accent
         pairConfig.baseForegroundColor = .white
         pairConfig.title = L10n.t("pairing.button.send_pair_request")
         pairButton.configuration = pairConfig
@@ -123,11 +132,11 @@ final class PairingViewController: UIViewController {
 
         requestsTitleLabel.text = L10n.t("pairing.requests.title")
         requestsTitleLabel.font = UIFont(name: "AvenirNext-DemiBold", size: 18) ?? .systemFont(ofSize: 18, weight: .semibold)
-        requestsTitleLabel.textColor = .label
+        requestsTitleLabel.textColor = AppVisualTheme.textPrimary
 
         emptyRequestsLabel.text = L10n.t("pairing.requests.empty")
         emptyRequestsLabel.font = UIFont(name: "AvenirNext-Medium", size: 14) ?? .systemFont(ofSize: 14, weight: .medium)
-        emptyRequestsLabel.textColor = .secondaryLabel
+        emptyRequestsLabel.textColor = AppVisualTheme.textSecondary
         emptyRequestsLabel.textAlignment = .center
         emptyRequestsLabel.numberOfLines = 0
 
@@ -389,16 +398,32 @@ extension PairingViewController: UITableViewDataSource, UITableViewDelegate {
         let cell = tableView.dequeueReusableCell(withIdentifier: "requestCell", for: indexPath)
         cell.accessoryType = .disclosureIndicator
         cell.selectionStyle = .default
-        cell.backgroundColor = .secondarySystemGroupedBackground
+        cell.backgroundColor = .clear
         cell.layer.cornerRadius = 12
         cell.layer.cornerCurve = .continuous
+        cell.layer.borderWidth = 1
+
+        let isUnpair = request.type == .unpair
+        let accentColor = isUnpair
+            ? UIColor.systemRed.withAlphaComponent(0.85)
+            : UIColor.systemGreen.withAlphaComponent(0.82)
+        let softTint = isUnpair
+            ? UIColor.systemRed.withAlphaComponent(0.14)
+            : UIColor.systemGreen.withAlphaComponent(0.14)
+        cell.layer.borderColor = accentColor.cgColor
+        cell.contentView.backgroundColor = softTint
+        cell.contentView.layer.cornerRadius = 12
+        cell.contentView.layer.cornerCurve = .continuous
 
         var config = cell.defaultContentConfiguration()
         config.text = request.senderDisplayName
         config.secondaryText = requestSubtitle(for: request)
         config.textProperties.font = UIFont(name: "AvenirNext-DemiBold", size: 16) ?? .systemFont(ofSize: 16, weight: .semibold)
+        config.textProperties.color = AppVisualTheme.textPrimary
         config.secondaryTextProperties.font = UIFont(name: "AvenirNext-Medium", size: 13) ?? .systemFont(ofSize: 13, weight: .medium)
-        config.secondaryTextProperties.color = .secondaryLabel
+        config.secondaryTextProperties.color = AppVisualTheme.textSecondary
+        config.image = UIImage(systemName: isUnpair ? "link.badge.minus" : "link")
+        config.imageProperties.tintColor = accentColor
         cell.contentConfiguration = config
         return cell
     }

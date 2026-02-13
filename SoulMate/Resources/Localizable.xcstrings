@@ -3740,6 +3740,91 @@
           }
         }
       }
+    },
+    "chat.reaction.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Reaction"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reaksiyonu Kaldır"
+          }
+        }
+      }
+    },
+    "chat.reaction.error.invalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reaction data is invalid."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reaksiyon verisi geçersiz."
+          }
+        }
+      }
+    },
+    "chat.reaction.error.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not update reaction."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reaksiyon güncellenemedi."
+          }
+        }
+      }
+    },
+    "chat.local.error.read_receipt_invalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read receipt input is invalid."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okundu bilgisi girdisi geçersiz."
+          }
+        }
+      }
+    },
+    "chat.local.error.read_receipt_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not sync read status."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okundu durumu senkronlanamadı."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

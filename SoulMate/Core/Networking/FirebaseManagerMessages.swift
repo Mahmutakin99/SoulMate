@@ -21,7 +21,7 @@ extension FirebaseManager {
             return
         }
 
-        let path = "\(AppConfiguration.DatabasePath.chats)/\(chatID)/messages/\(envelope.id)"
+        let path = "\(AppConfiguration.DatabasePath.chats)/\(chatID)/messages"
         rootRef()
             .child(AppConfiguration.DatabasePath.chats)
             .child(chatID)
@@ -60,6 +60,111 @@ extension FirebaseManager {
         ]) { [weak self] _, error in
             if let error {
                 completion(.failure(self?.mapFunctionsError(error, action: "ackMessageStored") ?? error))
+            } else {
+                completion(.success(()))
+            }
+        }
+        #else
+        completion(.failure(FirebaseManagerError.sdkMissing))
+        #endif
+    }
+
+    func markMessageRead(chatID: String, messageID: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        #if canImport(FirebaseFunctions)
+        guard isFirebaseConfigured() else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("firebase.error.config_not_ready_restart"))))
+            return
+        }
+
+        let trimmedChatID = chatID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedMessageID = messageID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedChatID.isEmpty, !trimmedMessageID.isEmpty else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("pairing.request.error.generic_invalid"))))
+            return
+        }
+
+        let callable = Functions.functions(region: "europe-west1").httpsCallable("markMessageRead")
+        callable.call([
+            "chatID": trimmedChatID,
+            "messageID": trimmedMessageID
+        ]) { [weak self] _, error in
+            if let error {
+                completion(.failure(self?.mapFunctionsError(error, action: "markMessageRead") ?? error))
+            } else {
+                completion(.success(()))
+            }
+        }
+        #else
+        completion(.failure(FirebaseManagerError.sdkMissing))
+        #endif
+    }
+
+    func setMessageReaction(
+        chatID: String,
+        messageID: String,
+        ciphertext: String,
+        keyVersion: Int,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        #if canImport(FirebaseFunctions)
+        guard isFirebaseConfigured() else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("firebase.error.config_not_ready_restart"))))
+            return
+        }
+
+        let trimmedChatID = chatID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedMessageID = messageID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedCiphertext = ciphertext.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedChatID.isEmpty,
+              !trimmedMessageID.isEmpty,
+              !trimmedCiphertext.isEmpty else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("pairing.request.error.generic_invalid"))))
+            return
+        }
+
+        let callable = Functions.functions(region: "europe-west1").httpsCallable("setMessageReaction")
+        callable.call([
+            "chatID": trimmedChatID,
+            "messageID": trimmedMessageID,
+            "ciphertext": trimmedCiphertext,
+            "keyVersion": keyVersion
+        ]) { [weak self] _, error in
+            if let error {
+                completion(.failure(self?.mapFunctionsError(error, action: "setMessageReaction") ?? error))
+            } else {
+                completion(.success(()))
+            }
+        }
+        #else
+        completion(.failure(FirebaseManagerError.sdkMissing))
+        #endif
+    }
+
+    func clearMessageReaction(
+        chatID: String,
+        messageID: String,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        #if canImport(FirebaseFunctions)
+        guard isFirebaseConfigured() else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("firebase.error.config_not_ready_restart"))))
+            return
+        }
+
+        let trimmedChatID = chatID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedMessageID = messageID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedChatID.isEmpty, !trimmedMessageID.isEmpty else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("pairing.request.error.generic_invalid"))))
+            return
+        }
+
+        let callable = Functions.functions(region: "europe-west1").httpsCallable("clearMessageReaction")
+        callable.call([
+            "chatID": trimmedChatID,
+            "messageID": trimmedMessageID
+        ]) { [weak self] _, error in
+            if let error {
+                completion(.failure(self?.mapFunctionsError(error, action: "clearMessageReaction") ?? error))
             } else {
                 completion(.success(()))
             }
@@ -175,7 +280,9 @@ extension FirebaseManager {
         }, withCancel: { [weak self] error in
             let mapped = self?.mapDatabaseError(error, path: path) ?? error
             #if DEBUG
-            print("observeEncryptedMessages iptal edildi: \((mapped as NSError).localizedDescription)")
+            if self?.shouldLogObserverCancellation(mapped) ?? true {
+                print("observeEncryptedMessages iptal edildi: \((mapped as NSError).localizedDescription)")
+            }
             #endif
             onCancelled?(mapped)
         })
@@ -247,7 +354,9 @@ extension FirebaseManager {
         }, withCancel: { [weak self] error in
             let mapped = self?.mapDatabaseError(error, path: path) ?? error
             #if DEBUG
-            print("observeHeartbeat iptal edildi: \((mapped as NSError).localizedDescription)")
+            if self?.shouldLogObserverCancellation(mapped) ?? true {
+                print("observeHeartbeat iptal edildi: \((mapped as NSError).localizedDescription)")
+            }
             #endif
             onCancelled?(mapped)
         })
@@ -304,7 +413,9 @@ extension FirebaseManager {
         }, withCancel: { [weak self] error in
             let mapped = self?.mapDatabaseError(error, path: path) ?? error
             #if DEBUG
-            print("observeMoodCiphertext iptal edildi: \((mapped as NSError).localizedDescription)")
+            if self?.shouldLogObserverCancellation(mapped) ?? true {
+                print("observeMoodCiphertext iptal edildi: \((mapped as NSError).localizedDescription)")
+            }
             #endif
             onCancelled?(mapped)
         })
@@ -348,6 +459,105 @@ extension FirebaseManager {
             .child(uid)
             .child("fcmToken")
             .setValue(token)
+        #endif
+    }
+
+    func observeMessageReceipts(
+        chatID: String,
+        onChange: @escaping ([MessageReceipt]) -> Void,
+        onCancelled: ((Error) -> Void)? = nil
+    ) -> FirebaseObservationToken {
+        #if canImport(FirebaseDatabase)
+        guard isFirebaseConfigured() else {
+            #if DEBUG
+            print("observeMessageReceipts atlandı: Firebase yapılandırılmamış.")
+            #endif
+            return FirebaseObservationToken {}
+        }
+
+        let ref = rootRef()
+            .child(AppConfiguration.DatabasePath.events)
+            .child(chatID)
+            .child("messageReceipts")
+        let path = "\(AppConfiguration.DatabasePath.events)/\(chatID)/messageReceipts"
+
+        let handle = ref.observe(.value, with: { snapshot in
+            var receipts: [MessageReceipt] = []
+            for case let child as DataSnapshot in snapshot.children {
+                guard let dictionary = child.value as? [String: Any],
+                      let receipt = MessageReceipt(messageID: child.key, dictionary: dictionary) else {
+                    continue
+                }
+                receipts.append(receipt)
+            }
+            onChange(receipts)
+        }, withCancel: { [weak self] error in
+            let mapped = self?.mapDatabaseError(error, path: path) ?? error
+            #if DEBUG
+            if self?.shouldLogObserverCancellation(mapped) ?? true {
+                print("observeMessageReceipts iptal edildi: \((mapped as NSError).localizedDescription)")
+            }
+            #endif
+            onCancelled?(mapped)
+        })
+
+        return FirebaseObservationToken {
+            ref.removeObserver(withHandle: handle)
+        }
+        #else
+        return FirebaseObservationToken {}
+        #endif
+    }
+
+    func observeMessageReactions(
+        chatID: String,
+        onChange: @escaping ([(messageID: String, reactorUID: String, envelope: MessageReactionEnvelope)]) -> Void,
+        onCancelled: ((Error) -> Void)? = nil
+    ) -> FirebaseObservationToken {
+        #if canImport(FirebaseDatabase)
+        guard isFirebaseConfigured() else {
+            #if DEBUG
+            print("observeMessageReactions atlandı: Firebase yapılandırılmamış.")
+            #endif
+            return FirebaseObservationToken {}
+        }
+
+        let ref = rootRef()
+            .child(AppConfiguration.DatabasePath.events)
+            .child(chatID)
+            .child("messageReactions")
+        let path = "\(AppConfiguration.DatabasePath.events)/\(chatID)/messageReactions"
+
+        let handle = ref.observe(.value, with: { snapshot in
+            var rows: [(messageID: String, reactorUID: String, envelope: MessageReactionEnvelope)] = []
+            for case let messageSnapshot as DataSnapshot in snapshot.children {
+                for case let reactorSnapshot as DataSnapshot in messageSnapshot.children {
+                    guard let envelope = MessageReactionEnvelope(snapshotValue: reactorSnapshot.value as Any) else {
+                        continue
+                    }
+                    rows.append((
+                        messageID: messageSnapshot.key,
+                        reactorUID: reactorSnapshot.key,
+                        envelope: envelope
+                    ))
+                }
+            }
+            onChange(rows)
+        }, withCancel: { [weak self] error in
+            let mapped = self?.mapDatabaseError(error, path: path) ?? error
+            #if DEBUG
+            if self?.shouldLogObserverCancellation(mapped) ?? true {
+                print("observeMessageReactions iptal edildi: \((mapped as NSError).localizedDescription)")
+            }
+            #endif
+            onCancelled?(mapped)
+        })
+
+        return FirebaseObservationToken {
+            ref.removeObserver(withHandle: handle)
+        }
+        #else
+        return FirebaseObservationToken {}
         #endif
     }
 }

@@ -42,21 +42,15 @@ extension ChatViewController {
 
         let menu = UIMenu(title: "", children: [pairingAction, signOutAction])
         let accountItem = makeAccountBarButtonItem(menu: menu)
-        let detailsItem = UIBarButtonItem(
-            image: UIImage(systemName: "sidebar.right"),
-            style: .plain,
-            target: self,
-            action: #selector(detailsButtonTapped)
-        )
+        let detailsItem = makeDetailsBarButtonItem()
         navigationItem.rightBarButtonItems = [accountItem, detailsItem]
     }
 
     private func makeAccountBarButtonItem(menu: UIMenu) -> UIBarButtonItem {
-        accountButtonContainer.frame = CGRect(x: 0, y: 0, width: 32, height: 32)
+        // Keep the custom view width aligned with UINavigationBar item wrapper size.
+        accountButtonContainer.frame = CGRect(x: 0, y: 0, width: 36, height: 36)
 
         if accountButtonContainer.subviews.isEmpty {
-            accountButtonContainer.translatesAutoresizingMaskIntoConstraints = false
-
             accountButton.setImage(UIImage(systemName: "person.crop.circle"), for: .normal)
             accountButton.menu = menu
             accountButton.showsMenuAsPrimaryAction = true
@@ -65,11 +59,13 @@ extension ChatViewController {
 
             accountBadgeLabel.backgroundColor = .systemRed
             accountBadgeLabel.textColor = .white
-            accountBadgeLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 11, weight: .bold)
+            accountBadgeLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 10, weight: .bold)
             accountBadgeLabel.textAlignment = .center
-            accountBadgeLabel.layer.cornerRadius = 9
+            accountBadgeLabel.layer.cornerRadius = 10
             accountBadgeLabel.layer.cornerCurve = .continuous
             accountBadgeLabel.clipsToBounds = true
+            accountBadgeLabel.layer.borderWidth = 1
+            accountBadgeLabel.layer.borderColor = UIColor.black.withAlphaComponent(0.22).cgColor
             accountBadgeLabel.isHidden = true
             accountBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -77,31 +73,47 @@ extension ChatViewController {
             accountButtonContainer.addSubview(accountBadgeLabel)
 
             NSLayoutConstraint.activate([
-                accountButtonContainer.widthAnchor.constraint(equalToConstant: 32),
-                accountButtonContainer.heightAnchor.constraint(equalToConstant: 32),
+                accountButton.centerXAnchor.constraint(equalTo: accountButtonContainer.centerXAnchor),
+                accountButton.centerYAnchor.constraint(equalTo: accountButtonContainer.centerYAnchor),
+                accountButton.widthAnchor.constraint(equalToConstant: 32),
+                accountButton.heightAnchor.constraint(equalToConstant: 32),
 
-                accountButton.topAnchor.constraint(equalTo: accountButtonContainer.topAnchor),
-                accountButton.bottomAnchor.constraint(equalTo: accountButtonContainer.bottomAnchor),
-                accountButton.leadingAnchor.constraint(equalTo: accountButtonContainer.leadingAnchor),
-                accountButton.trailingAnchor.constraint(equalTo: accountButtonContainer.trailingAnchor),
-
-                accountBadgeLabel.topAnchor.constraint(equalTo: accountButtonContainer.topAnchor, constant: -2),
-                accountBadgeLabel.trailingAnchor.constraint(equalTo: accountButtonContainer.trailingAnchor, constant: 2),
-                accountBadgeLabel.heightAnchor.constraint(equalToConstant: 18),
-                accountBadgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 18)
+                accountBadgeLabel.topAnchor.constraint(equalTo: accountButtonContainer.topAnchor, constant: 1),
+                accountBadgeLabel.trailingAnchor.constraint(equalTo: accountButtonContainer.trailingAnchor, constant: -1),
+                accountBadgeLabel.heightAnchor.constraint(equalToConstant: 20),
+                accountBadgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 20)
             ])
         }
 
+        accountButton.menu = menu
         accountButton.tintColor = theme.accent
         updateDetailsBadge(count: 0)
         return UIBarButtonItem(customView: accountButtonContainer)
     }
 
+    private func makeDetailsBarButtonItem() -> UIBarButtonItem {
+        detailsButtonContainer.frame = CGRect(x: 0, y: 0, width: 36, height: 36)
+        if detailsButtonContainer.subviews.isEmpty {
+            detailsButton.setImage(UIImage(systemName: "sidebar.right"), for: .normal)
+            detailsButton.addTarget(self, action: #selector(detailsButtonTapped), for: .touchUpInside)
+            detailsButton.accessibilityLabel = L10n.t("chat.sidebar.title")
+            detailsButton.translatesAutoresizingMaskIntoConstraints = false
+
+            detailsButtonContainer.addSubview(detailsButton)
+            NSLayoutConstraint.activate([
+                detailsButton.centerXAnchor.constraint(equalTo: detailsButtonContainer.centerXAnchor),
+                detailsButton.centerYAnchor.constraint(equalTo: detailsButtonContainer.centerYAnchor),
+                detailsButton.widthAnchor.constraint(equalToConstant: 32),
+                detailsButton.heightAnchor.constraint(equalToConstant: 32)
+            ])
+        }
+
+        detailsButton.tintColor = theme.accent
+        return UIBarButtonItem(customView: detailsButtonContainer)
+    }
+
     func setupBackground() {
-        view.backgroundColor = .systemBackground
-        gradientLayer.startPoint = CGPoint(x: 0, y: 0)
-        gradientLayer.endPoint = CGPoint(x: 1, y: 1)
-        view.layer.insertSublayer(gradientLayer, at: 0)
+        AppVisualTheme.applyBackground(to: view, gradientLayer: gradientLayer)
     }
 
     func setupUI() {

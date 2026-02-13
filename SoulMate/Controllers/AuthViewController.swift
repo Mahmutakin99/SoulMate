@@ -24,6 +24,7 @@ final class AuthViewController: UIViewController {
     private let passwordField = UITextField()
     private let submitButton = UIButton(type: .system)
     private let activity = UIActivityIndicatorView(style: .medium)
+    private let gradientLayer = CAGradientLayer()
 
     init(viewModel: AuthViewModel = AuthViewModel()) {
         self.viewModel = viewModel
@@ -36,11 +37,16 @@ final class AuthViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
+        AppVisualTheme.applyBackground(to: view, gradientLayer: gradientLayer)
         title = L10n.t("auth.nav_title")
         setupUI()
         bindViewModel()
         updateModeUI()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        gradientLayer.frame = view.bounds
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -52,10 +58,11 @@ final class AuthViewController: UIViewController {
         titleLabel.text = L10n.t("auth.title")
         titleLabel.font = UIFont(name: "AvenirNext-Bold", size: 36) ?? .systemFont(ofSize: 36, weight: .bold)
         titleLabel.textAlignment = .center
+        titleLabel.textColor = AppVisualTheme.textPrimary
 
         subtitleLabel.text = L10n.t("auth.subtitle")
         subtitleLabel.font = UIFont(name: "AvenirNext-Medium", size: 15) ?? .systemFont(ofSize: 15, weight: .medium)
-        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.textColor = AppVisualTheme.textSecondary
         subtitleLabel.textAlignment = .center
 
         modeControl.selectedSegmentIndex = 0
@@ -73,7 +80,7 @@ final class AuthViewController: UIViewController {
 
         var configuration = UIButton.Configuration.filled()
         configuration.cornerStyle = .capsule
-        configuration.baseBackgroundColor = UIColor(red: 0.86, green: 0.18, blue: 0.44, alpha: 1)
+        configuration.baseBackgroundColor = AppVisualTheme.accent
         configuration.baseForegroundColor = .white
         configuration.title = L10n.t("auth.button.sign_in")
         submitButton.configuration = configuration
@@ -117,8 +124,13 @@ final class AuthViewController: UIViewController {
         field.layer.cornerRadius = 12
         field.layer.cornerCurve = .continuous
         field.layer.borderWidth = 1
-        field.layer.borderColor = UIColor.systemGray5.cgColor
-        field.backgroundColor = UIColor.secondarySystemBackground
+        field.layer.borderColor = AppVisualTheme.fieldBorder.cgColor
+        field.backgroundColor = AppVisualTheme.fieldBackground
+        field.textColor = AppVisualTheme.textPrimary
+        field.attributedPlaceholder = NSAttributedString(
+            string: placeholder,
+            attributes: [.foregroundColor: AppVisualTheme.textSecondary]
+        )
         field.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 12, height: 1))
         field.leftViewMode = .always
     }

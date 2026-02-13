@@ -21,8 +21,8 @@ extension ChatViewController {
             self.onRequirePairing?()
         }
 
-        viewModel.onIncomingPendingRequestCountChanged = { [weak self] count in
-            self?.updateDetailsBadge(count: count)
+        viewModel.onIncomingPendingRequestBadgeChanged = { [weak self] badgeState in
+            self?.updateDetailsBadge(state: badgeState)
         }
 
         viewModel.onMessagesUpdated = { [weak self] in
@@ -54,6 +54,7 @@ extension ChatViewController {
             self.updateEmptyStateVisibility()
             self.scrollToBottom(animated: true)
             self.scheduleVisibleGIFPlaybackUpdate(isEnabled: !(self.tableView.isDragging || self.tableView.isDecelerating), delay: 0.08)
+            self.markVisibleIncomingMessagesAsRead()
         }
 
         viewModel.onMessagesPrepended = { [weak self] insertedCount in
@@ -63,6 +64,25 @@ extension ChatViewController {
                 return
             }
             self.prependMessagesAndPreservePosition(insertedCount: insertedCount)
+            self.markVisibleIncomingMessagesAsRead()
+        }
+
+        viewModel.onMessageMetaUpdated = { [weak self] changedIDs in
+            guard let self else { return }
+            guard !changedIDs.isEmpty else { return }
+            guard self.isViewLoaded, self.view.window != nil else {
+                self.needsDeferredMessageReload = true
+                return
+            }
+            guard self.tableView.numberOfRows(inSection: 0) == self.viewModel.numberOfMessages() else {
+                return
+            }
+
+            let changedRows = self.viewModel.messages.enumerated().compactMap { index, message in
+                changedIDs.contains(message.id) ? IndexPath(row: index, section: 0) : nil
+            }
+            guard !changedRows.isEmpty else { return }
+            self.tableView.reloadRows(at: changedRows, with: .none)
         }
 
         viewModel.onPairingStatusUpdated = { [weak self] message in
@@ -117,14 +137,12 @@ extension ChatViewController {
         let ready = state == .ready
         messageTextField.isEnabled = ready
         composerSendButton.isEnabled = ready
-        gifButton.isEnabled = ready
         heartButton.isEnabled = ready
         secretSwitch.isEnabled = ready
 
         let interactionAlpha: CGFloat = ready ? 1.0 : 0.62
         messageTextField.alpha = interactionAlpha
         composerSendButton.alpha = interactionAlpha
-        gifButton.alpha = interactionAlpha
         emojiToggleButton.alpha = interactionAlpha
         heartButton.alpha = interactionAlpha
         secretSwitch.alpha = interactionAlpha

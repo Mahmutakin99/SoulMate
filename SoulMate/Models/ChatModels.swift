@@ -14,6 +14,113 @@ enum ChatPayloadType: String, Codable {
     case nudge
 }
 
+enum MessageDeliveryState: String, Codable {
+    case sent
+    case delivered
+    case read
+}
+
+struct MessageReaction: Hashable, Codable {
+    let messageID: String
+    let reactorUID: String
+    let emoji: String
+    let updatedAt: Date
+}
+
+struct MessageReactionEnvelope: Codable {
+    let ciphertext: String
+    let keyVersion: Int
+    let updatedAt: TimeInterval
+
+    var dictionaryValue: [String: Any] {
+        [
+            "ciphertext": ciphertext,
+            "keyVersion": keyVersion,
+            "updatedAt": updatedAt
+        ]
+    }
+
+    init(ciphertext: String, keyVersion: Int, updatedAt: TimeInterval) {
+        self.ciphertext = ciphertext
+        self.keyVersion = keyVersion
+        self.updatedAt = updatedAt
+    }
+
+    init?(snapshotValue: Any) {
+        guard let data = snapshotValue as? [String: Any],
+              let ciphertext = data["ciphertext"] as? String,
+              let keyVersion = data["keyVersion"] as? Int,
+              let updatedAt = data["updatedAt"] as? TimeInterval else {
+            return nil
+        }
+
+        self.ciphertext = ciphertext
+        self.keyVersion = keyVersion
+        self.updatedAt = updatedAt
+    }
+}
+
+struct MessageReceipt: Hashable {
+    let messageID: String
+    let senderID: String
+    let recipientID: String
+    let deliveredAt: Date
+    let readAt: Date?
+    let updatedAt: Date
+
+    init(
+        messageID: String,
+        senderID: String,
+        recipientID: String,
+        deliveredAt: Date,
+        readAt: Date?,
+        updatedAt: Date
+    ) {
+        self.messageID = messageID
+        self.senderID = senderID
+        self.recipientID = recipientID
+        self.deliveredAt = deliveredAt
+        self.readAt = readAt
+        self.updatedAt = updatedAt
+    }
+
+    init?(messageID: String, dictionary: [String: Any]) {
+        guard let senderID = dictionary["senderID"] as? String,
+              let recipientID = dictionary["recipientID"] as? String,
+              let deliveredAtRaw = dictionary["deliveredAt"] as? TimeInterval else {
+            return nil
+        }
+
+        let updatedAtRaw = dictionary["updatedAt"] as? TimeInterval ?? deliveredAtRaw
+        let readAtRaw = dictionary["readAt"] as? TimeInterval
+
+        self.messageID = messageID
+        self.senderID = senderID
+        self.recipientID = recipientID
+        self.deliveredAt = Date(timeIntervalSince1970: deliveredAtRaw)
+        if let readAtRaw {
+            self.readAt = Date(timeIntervalSince1970: readAtRaw)
+        } else {
+            self.readAt = nil
+        }
+        self.updatedAt = Date(timeIntervalSince1970: updatedAtRaw)
+    }
+}
+
+struct ChatMessageMeta: Equatable {
+    let timeText: String
+    let deliveryState: MessageDeliveryState?
+    let reactions: [MessageReaction]
+}
+
+struct IncomingRequestBadgeState: Equatable {
+    let total: Int
+    let pairCount: Int
+    let unpairCount: Int
+
+    static let empty = IncomingRequestBadgeState(total: 0, pairCount: 0, unpairCount: 0)
+}
+
 enum MoodStatus: String, CaseIterable, Codable {
     case happy
     case busy

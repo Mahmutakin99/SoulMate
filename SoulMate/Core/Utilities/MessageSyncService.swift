@@ -14,6 +14,7 @@ final class MessageSyncService {
     }
 
     var onError: ((Error) -> Void)?
+    var onOutgoingUploadStateChanged: ((String, LocalMessageUploadState) -> Void)?
 
     private struct Context {
         let chatID: String
@@ -31,6 +32,8 @@ final class MessageSyncService {
 
     private var context: Context?
     private var pendingAckMessageIDs = Set<String>()
+    private var inFlightAckMessageIDs = Set<String>()
+    private var inFlightUploadMessageIDs = Set<String>()
     private var retryWorkItem: DispatchWorkItem?
     private var retryDelay: TimeInterval = 1
     private let maxRetryDelay: TimeInterval = 60
@@ -55,6 +58,8 @@ final class MessageSyncService {
         queue.async {
             self.context = Context(chatID: chatID, currentUID: currentUID, partnerUID: partnerUID)
             self.pendingAckMessageIDs.removeAll(keepingCapacity: true)
+            self.inFlightAckMessageIDs.removeAll(keepingCapacity: true)
+            self.inFlightUploadMessageIDs.removeAll(keepingCapacity: true)
             self.retryDelay = 1
             self.scheduledRetryDelay = nil
             self.isRetryCycleRunning = false
@@ -66,6 +71,8 @@ final class MessageSyncService {
         queue.async {
             self.context = nil
             self.pendingAckMessageIDs.removeAll(keepingCapacity: true)
+            self.inFlightAckMessageIDs.removeAll(keepingCapacity: true)
+            self.inFlightUploadMessageIDs.removeAll(keepingCapacity: true)
             self.retryWorkItem?.cancel()
             self.retryWorkItem = nil
             self.retryDelay = 1
@@ -171,6 +178,11 @@ final class MessageSyncService {
             uploadState: .uploaded
         )
 
+        if direction == .outgoing {
+            try localStore.markUploaded(messageID: envelope.id)
+            onOutgoingUploadStateChanged?(envelope.id, .uploaded)
+        }
+
         if envelope.recipientID == context.currentUID {
             acknowledgeMessage(chatID: context.chatID, messageID: envelope.id)
         }
@@ -209,6 +221,11 @@ final class MessageSyncService {
             decoded.append(DecodedEnvelope(envelope: envelope, message: message, direction: direction))
         }
 
+        let existingBeforeInsert = try localStore.existingMessageIDs(
+            chatID: context.chatID,
+            ids: decoded.map { $0.message.id }
+        )
+
         let incomingMessages = decoded
             .filter { $0.direction == .incoming }
             .map(\.message)
@@ -231,6 +248,11 @@ final class MessageSyncService {
                 direction: .outgoing,
                 uploadState: .uploaded
             )
+
+            for outgoing in outgoingMessages {
+                try localStore.markUploaded(messageID: outgoing.id)
+                onOutgoingUploadStateChanged?(outgoing.id, .uploaded)
+            }
         }
 
         decoded.forEach { item in
@@ -239,10 +261,23 @@ final class MessageSyncService {
             }
         }
 
-        return decoded.map { SyncConsumeResult(message: $0.message, inserted: true) }
+        return decoded.map {
+            SyncConsumeResult(
+                message: $0.message,
+                inserted: !existingBeforeInsert.contains($0.message.id)
+            )
+        }
     }
 
     private func uploadOutgoingMessage(context: Context, message: ChatMessage, payload: ChatPayload) {
+        queue.async {
+            guard self.context?.chatID == context.chatID else { return }
+            guard self.inFlightUploadMessageIDs.insert(message.id).inserted else { return }
+            self.performUploadOutgoingMessage(context: context, message: message, payload: payload)
+        }
+    }
+
+    private func performUploadOutgoingMessage(context: Context, message: ChatMessage, payload: ChatPayload) {
         do {
             let plainData = try jsonEncoder.encode(payload)
             let encryptedPayload = try encryption.encrypt(plainData, for: context.partnerUID)
@@ -256,50 +291,88 @@ final class MessageSyncService {
 
             firebase.sendEncryptedMessage(chatID: context.chatID, envelope: envelope) { [weak self] result in
                 guard let self else { return }
+
+                self.queue.async {
+                    self.inFlightUploadMessageIDs.remove(message.id)
+                }
+
                 switch result {
                 case .success:
                     do {
                         try self.localStore.markUploaded(messageID: envelope.id)
+                        self.onOutgoingUploadStateChanged?(envelope.id, .uploaded)
                     } catch {
                         self.reportError(error)
                     }
                 case .failure(let error):
+                    let nonRetryable = self.isNonRetryableUploadError(error)
                     do {
-                        try self.localStore.markUploadFailed(messageID: envelope.id)
+                        if nonRetryable {
+                            try self.localStore.markUploadBlocked(messageID: envelope.id)
+                            self.onOutgoingUploadStateChanged?(envelope.id, .blocked)
+                        } else {
+                            try self.localStore.markUploadFailed(messageID: envelope.id)
+                            self.onOutgoingUploadStateChanged?(envelope.id, .failed)
+                        }
                     } catch let localStoreError {
                         self.reportError(localStoreError)
                     }
                     self.reportError(error)
-                    self.scheduleRetryWithBackoff()
+                    if !nonRetryable {
+                        self.scheduleRetryWithBackoff()
+                    }
                 }
             }
         } catch {
+            queue.async {
+                self.inFlightUploadMessageIDs.remove(message.id)
+            }
             do {
-                try localStore.markUploadFailed(messageID: message.id)
+                if isNonRetryableUploadError(error) {
+                    try localStore.markUploadBlocked(messageID: message.id)
+                    onOutgoingUploadStateChanged?(message.id, .blocked)
+                } else {
+                    try localStore.markUploadFailed(messageID: message.id)
+                    onOutgoingUploadStateChanged?(message.id, .failed)
+                }
             } catch let localStoreError {
                 reportError(localStoreError)
             }
             reportError(error)
-            scheduleRetryWithBackoff()
+            if !isNonRetryableUploadError(error) {
+                scheduleRetryWithBackoff()
+            }
         }
     }
 
     private func acknowledgeMessage(chatID: String, messageID: String) {
-        firebase.ackMessageStored(chatID: chatID, messageID: messageID) { [weak self] result in
-            guard let self else { return }
-            switch result {
-            case .success:
+        queue.async {
+            if self.inFlightAckMessageIDs.contains(messageID) {
+                return
+            }
+            self.pendingAckMessageIDs.remove(messageID)
+            self.inFlightAckMessageIDs.insert(messageID)
+
+            self.firebase.ackMessageStored(chatID: chatID, messageID: messageID) { [weak self] result in
+                guard let self else { return }
                 self.queue.async {
-                    self.pendingAckMessageIDs.remove(messageID)
+                    self.inFlightAckMessageIDs.remove(messageID)
                 }
-            case .failure(let error):
-                self.queue.async {
-                    let inserted = self.pendingAckMessageIDs.insert(messageID).inserted
-                    if inserted || self.retryWorkItem == nil {
-                        self.scheduleRetryWithBackoff()
+
+                switch result {
+                case .success:
+                    self.queue.async {
+                        self.pendingAckMessageIDs.remove(messageID)
                     }
+                case .failure(let error):
+                    self.queue.async {
+                        let inserted = self.pendingAckMessageIDs.insert(messageID).inserted
+                        if inserted || self.retryWorkItem == nil {
+                            self.scheduleRetryWithBackoff()
+                        }
+                    }
+                    self.reportError(error)
                 }
-                self.reportError(error)
             }
         }
     }
@@ -397,6 +470,23 @@ final class MessageSyncService {
 
         guard shouldEmit else { return }
         onError?(error)
+    }
+
+    private func isNonRetryableUploadError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == "com.firebase", nsError.code == 1 {
+            return true
+        }
+
+        let description = ((error as? LocalizedError)?.errorDescription ?? nsError.localizedDescription).lowercased()
+        if description.contains("permission denied") ||
+            description.contains("permission_denied") ||
+            description.contains("erişim reddedildi") ||
+            description.contains("not_mutual_pair") ||
+            description.contains("not mutual pair") {
+            return true
+        }
+        return false
     }
 
     private func currentContext() -> Context? {

@@ -140,7 +140,9 @@ extension FirebaseManager {
         }, withCancel: { [weak self] error in
             let mapped = self?.mapDatabaseError(error, path: path) ?? error
             #if DEBUG
-            print("observeIncomingRequests iptal edildi: \((mapped as NSError).localizedDescription)")
+            if self?.shouldLogObserverCancellation(mapped) ?? true {
+                print("observeIncomingRequests iptal edildi: \((mapped as NSError).localizedDescription)")
+            }
             #endif
             onCancelled?(mapped)
         })
@@ -180,7 +182,9 @@ extension FirebaseManager {
         }, withCancel: { [weak self] error in
             let mapped = self?.mapDatabaseError(error, path: path) ?? error
             #if DEBUG
-            print("observeOutgoingRequests iptal edildi: \((mapped as NSError).localizedDescription)")
+            if self?.shouldLogObserverCancellation(mapped) ?? true {
+                print("observeOutgoingRequests iptal edildi: \((mapped as NSError).localizedDescription)")
+            }
             #endif
             onCancelled?(mapped)
         })

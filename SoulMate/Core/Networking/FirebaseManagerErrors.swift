@@ -14,6 +14,28 @@ import FirebaseFunctions
 #endif
 
 extension FirebaseManager {
+    func isPermissionDeniedDescription(_ description: String) -> Bool {
+        let lowercased = description.lowercased()
+        return lowercased.contains("permission_denied") ||
+            (lowercased.contains("permission") && lowercased.contains("denied")) ||
+            lowercased.contains("erişim reddedildi")
+    }
+
+    func shouldLogObserverCancellation(_ error: Error) -> Bool {
+        let description = ((error as? LocalizedError)?.errorDescription ?? error.localizedDescription).lowercased()
+        if isPermissionDeniedDescription(description) {
+            return false
+        }
+        if description.contains("not_mutual_pair") || description.contains("not mutual pair") {
+            return false
+        }
+        if description.contains("mutual pairing is not active") ||
+            description.contains("karşılıklı eşleşme aktif değil") {
+            return false
+        }
+        return true
+    }
+
     func mapAuthError(_ error: Error, action: String) -> Error {
         let nsError = error as NSError
         #if DEBUG
@@ -59,15 +81,20 @@ extension FirebaseManager {
 
     func mapDatabaseError(_ error: Error, path: String) -> Error {
         let nsError = error as NSError
-        #if DEBUG
-        print("RealtimeDatabase hatası path=\(path) domain=\(nsError.domain) code=\(nsError.code) message=\(nsError.localizedDescription)")
-        #endif
-
         let description = nsError.localizedDescription.lowercased()
         let details = (nsError.userInfo["details"] as? String)?.lowercased() ?? ""
         let combined = "\(description) \(details)"
+        #if DEBUG
+        if !isPermissionDeniedDescription(combined) {
+            print("RealtimeDatabase hatası path=\(path) domain=\(nsError.domain) code=\(nsError.code) message=\(nsError.localizedDescription)")
+        }
+        #endif
 
         if combined.contains("permission_denied") || (combined.contains("permission") && combined.contains("denied")) {
+            let normalizedPath = path.lowercased()
+            if normalizedPath.contains("/chats/") || normalizedPath.contains("/events/") {
+                return FirebaseManagerError.generic(L10n.t("pairing.request.error.not_mutual"))
+            }
             return FirebaseManagerError.generic(L10n.f("firebase.db.error.permission_denied_format", path))
         }
         if combined.contains("disconnected") {
@@ -114,6 +141,12 @@ extension FirebaseManager {
                     if action == "ackMessageStored" {
                         return FirebaseManagerError.generic(L10n.t("chat.local.error.invalid_ack_input"))
                     }
+                    if action == "markMessageRead" {
+                        return FirebaseManagerError.generic(L10n.t("chat.local.error.read_receipt_invalid"))
+                    }
+                    if action == "setMessageReaction" || action == "clearMessageReaction" {
+                        return FirebaseManagerError.generic(L10n.t("chat.reaction.error.invalid"))
+                    }
                     if combined.contains("invalid_pair_code") {
                         return FirebaseManagerError.invalidPairCode
                     }
@@ -155,6 +188,12 @@ extension FirebaseManager {
                     if action == "ackMessageStored" {
                         return FirebaseManagerError.generic(L10n.t("chat.local.error.ack_failed"))
                     }
+                    if action == "markMessageRead" {
+                        return FirebaseManagerError.generic(L10n.t("chat.local.error.read_receipt_failed"))
+                    }
+                    if action == "setMessageReaction" || action == "clearMessageReaction" {
+                        return FirebaseManagerError.generic(L10n.t("chat.reaction.error.failed"))
+                    }
                     if action == "deleteConversationForUnpair" {
                         return FirebaseManagerError.generic(L10n.t("pairing.unpair.error.remote_delete_required"))
                     }
@@ -170,6 +209,12 @@ extension FirebaseManager {
                     }
                     if action == "ackMessageStored" {
                         return FirebaseManagerError.generic(L10n.t("chat.local.error.ack_failed"))
+                    }
+                    if action == "markMessageRead" {
+                        return FirebaseManagerError.generic(L10n.t("chat.local.error.read_receipt_failed"))
+                    }
+                    if action == "setMessageReaction" || action == "clearMessageReaction" {
+                        return FirebaseManagerError.generic(L10n.t("chat.reaction.error.failed"))
                     }
                     return FirebaseManagerError.generic(L10n.t("pairing.request.error.function_not_deployed"))
                 case .unavailable, .deadlineExceeded:

@@ -245,7 +245,9 @@ extension FirebaseManager {
         }, withCancel: { [weak self] error in
             let mapped = self?.mapDatabaseError(error, path: path) ?? error
             #if DEBUG
-            print("observeUserProfile iptal edildi: \((mapped as NSError).localizedDescription)")
+            if self?.shouldLogObserverCancellation(mapped) ?? true {
+                print("observeUserProfile iptal edildi: \((mapped as NSError).localizedDescription)")
+            }
             #endif
             onCancelled?(mapped)
         })

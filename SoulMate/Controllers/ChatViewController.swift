@@ -6,9 +6,6 @@
 //
 
 import UIKit
-#if canImport(GiphyUISDK)
-import GiphyUISDK
-#endif
 #if canImport(SDWebImage)
 import SDWebImage
 #endif
@@ -51,7 +48,6 @@ final class ChatViewController: UIViewController {
     let secretSwitch = UISwitch()
     let secretLabel = UILabel()
     let composerSendButton = UIButton(type: .system)
-    let gifButton = UIButton(type: .system)
     let emojiToggleButton = UIButton(type: .system)
     let heartButton = UIButton(type: .system)
 
@@ -59,6 +55,8 @@ final class ChatViewController: UIViewController {
     let accountButtonContainer = UIView()
     let accountButton = UIButton(type: .system)
     let accountBadgeLabel = UILabel()
+    let detailsButtonContainer = UIView()
+    let detailsButton = UIButton(type: .system)
     let detailsDimView = UIControl()
     let detailsDrawerView = UIView()
     let detailsTitleLabel = UILabel()
@@ -103,6 +101,7 @@ final class ChatViewController: UIViewController {
     var previousMessageCount = 0
     var previousLastMessageID: String?
     var gifPlaybackUpdateWorkItem: DispatchWorkItem?
+    var incomingRequestBadgeState: IncomingRequestBadgeState = .empty
 
     var theme: ChatTheme!
     lazy var dismissKeyboardTapGesture = UITapGestureRecognizer(target: self, action: #selector(handleBackgroundTap))

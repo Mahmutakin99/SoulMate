@@ -20,9 +20,19 @@ extension ChatViewController: UITableViewDataSource {
         let message = viewModel.message(at: indexPath.row)
         let isOutgoing = viewModel.isFromCurrentUser(message)
         let isSecretRevealed = revealedSecretMessageIDs.contains(message.id)
-        cell.configure(with: message, isOutgoing: isOutgoing, isSecretRevealed: isSecretRevealed)
+        let metadata = viewModel.messageMeta(for: message.id)
+        cell.configure(
+            with: message,
+            isOutgoing: isOutgoing,
+            isSecretRevealed: isSecretRevealed,
+            meta: metadata
+        )
         cell.onSecretRevealed = { [weak self] in
             self?.markSecretMessageAsRevealed(message.id)
+        }
+        cell.onReactionLongPress = { [weak self, weak cell] in
+            guard let self, let cell else { return }
+            self.presentReactionSheet(for: message, sourceView: cell)
         }
         return cell
     }
@@ -45,6 +55,7 @@ extension ChatViewController: UITableViewDelegate {
             ratio = intersection.height / cell.frame.height
         }
         chatCell.setGIFPlaybackEnabled(ratio >= minimumGIFVisibleRatio)
+        markVisibleIncomingMessagesAsRead()
     }
 
     func tableView(_ tableView: UITableView, didEndDisplaying cell: UITableViewCell, forRowAt indexPath: IndexPath) {
@@ -73,26 +84,40 @@ extension ChatViewController: UITableViewDelegate {
         guard scrollView === tableView else { return }
         if !decelerate {
             scheduleVisibleGIFPlaybackUpdate(isEnabled: true, delay: 0.08)
+            markVisibleIncomingMessagesAsRead()
         }
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         guard scrollView === tableView else { return }
         scheduleVisibleGIFPlaybackUpdate(isEnabled: true, delay: 0.08)
+        markVisibleIncomingMessagesAsRead()
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         guard scrollView === tableView else { return }
         scheduleVisibleGIFPlaybackUpdate(isEnabled: true, delay: 0.08)
+        markVisibleIncomingMessagesAsRead()
     }
 }
 
 extension ChatViewController {
     func scrollToBottom(animated: Bool) {
-        let count = viewModel.numberOfMessages()
-        guard count > 0 else { return }
-        let indexPath = IndexPath(row: count - 1, section: 0)
-        tableView.scrollToRow(at: indexPath, at: .bottom, animated: animated)
+        let modelCount = viewModel.numberOfMessages()
+        guard modelCount > 0 else { return }
+
+        tableView.layoutIfNeeded()
+        let tableRowCount = tableView.numberOfRows(inSection: 0)
+        guard tableRowCount > 0 else { return }
+
+        let targetOffsetY = max(
+            -tableView.adjustedContentInset.top,
+            tableView.contentSize.height - tableView.bounds.height + tableView.adjustedContentInset.bottom
+        )
+        tableView.setContentOffset(
+            CGPoint(x: tableView.contentOffset.x, y: targetOffsetY),
+            animated: animated
+        )
     }
 
     func prependMessagesAndPreservePosition(insertedCount: Int) {
@@ -170,5 +195,39 @@ extension ChatViewController {
             }
             cell.setGIFPlaybackEnabled(ratio >= minimumGIFVisibleRatio)
         }
+    }
+
+    func markVisibleIncomingMessagesAsRead() {
+        guard view.window != nil else { return }
+        guard let visibleRows = tableView.indexPathsForVisibleRows, !visibleRows.isEmpty else { return }
+
+        let incomingIDs = visibleRows.compactMap { indexPath -> String? in
+            guard indexPath.row < viewModel.numberOfMessages() else { return nil }
+            let message = viewModel.message(at: indexPath.row)
+            return viewModel.isIncomingMessageForCurrentUser(message) ? message.id : nil
+        }
+        guard !incomingIDs.isEmpty else { return }
+        viewModel.markVisibleIncomingMessagesAsRead(incomingIDs)
+    }
+
+    func presentReactionSheet(for message: ChatMessage, sourceView: UIView) {
+        let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        let emojis = ["❤️", "😂", "🥰", "🔥", "😮", "😢", "👍", "🙏"]
+        emojis.forEach { emoji in
+            sheet.addAction(UIAlertAction(title: emoji, style: .default, handler: { [weak self] _ in
+                self?.viewModel.setReaction(messageID: message.id, emoji: emoji)
+            }))
+        }
+
+        sheet.addAction(UIAlertAction(title: L10n.t("chat.reaction.remove"), style: .destructive, handler: { [weak self] _ in
+            self?.viewModel.clearReaction(messageID: message.id)
+        }))
+        sheet.addAction(UIAlertAction(title: L10n.t("common.cancel"), style: .cancel))
+
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = sourceView
+            popover.sourceRect = sourceView.bounds
+        }
+        _ = presentIfInHierarchy(sheet)
     }
 }

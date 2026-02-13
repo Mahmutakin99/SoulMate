@@ -241,12 +241,29 @@ extension FirebaseManager {
             return
         }
 
+        let timeout = AppConfiguration.Session.lockCallTimeoutSeconds
+        let callbackLock = NSLock()
+        var didComplete = false
+        let finish: (Result<Void, Error>) -> Void = { result in
+            callbackLock.lock()
+            defer { callbackLock.unlock() }
+            guard !didComplete else { return }
+            didComplete = true
+            completion(result)
+        }
+
+        let timeoutWorkItem = DispatchWorkItem {
+            finish(.failure(FirebaseManagerError.sessionValidationFailed))
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: timeoutWorkItem)
+
         let callable = Functions.functions(region: "europe-west1").httpsCallable("acquireSessionLock")
         callable.call(sessionLockPayload()) { [weak self] _, error in
+            timeoutWorkItem.cancel()
             if let error {
-                completion(.failure(self?.mapFunctionsError(error, action: "acquireSessionLock") ?? error))
+                finish(.failure(self?.mapFunctionsError(error, action: "acquireSessionLock") ?? error))
             } else {
-                completion(.success(()))
+                finish(.success(()))
             }
         }
         #else
@@ -265,16 +282,33 @@ extension FirebaseManager {
             return
         }
 
+        let timeout = AppConfiguration.Session.lockCallTimeoutSeconds
+        let callbackLock = NSLock()
+        var didComplete = false
+        let finish: (Result<Bool, Error>) -> Void = { result in
+            callbackLock.lock()
+            defer { callbackLock.unlock() }
+            guard !didComplete else { return }
+            didComplete = true
+            completion(result)
+        }
+
+        let timeoutWorkItem = DispatchWorkItem {
+            finish(.failure(FirebaseManagerError.logoutRequiresNetwork))
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: timeoutWorkItem)
+
         let callable = Functions.functions(region: "europe-west1").httpsCallable("releaseSessionLock")
         callable.call(["installationID": InstallationIDProvider.shared.installationID()]) { [weak self] result, error in
+            timeoutWorkItem.cancel()
             if let error {
-                completion(.failure(self?.mapFunctionsError(error, action: "releaseSessionLock") ?? error))
+                finish(.failure(self?.mapFunctionsError(error, action: "releaseSessionLock") ?? error))
                 return
             }
 
             let payload = result?.data as? [String: Any]
             let released = payload?["released"] as? Bool ?? false
-            completion(.success(released))
+            finish(.success(released))
         }
         #else
         completion(.failure(FirebaseManagerError.logoutRequiresNetwork))
