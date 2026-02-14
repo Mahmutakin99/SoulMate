@@ -41,7 +41,7 @@ Bu rehber, SoulMate iOS projesini sıfırdan kurmak, yapılandırmak ve dağıtm
     *   `firebase-ios-sdk` (Auth, Database, Messaging, Crashlytics) (github.com/firebase/firebase-ios-sdk)
     *   `giphy-ios-sdk` (GiphyUISDK) (github.com/firebase/firebase-ios-sdk) ! Kullanabilmek API anahtarı almanız gereklidir.
     *   `SDWebImage` (github.com/SDWebImage/SDWebImage.git)
-    *   `JGProgressHUD` İsteğe bağlı (https://github.com/JonasGessner/JGProgressHUD)
+    *   `JGProgressHUD` İsteğe bağlı (github.com/JonasGessner/JGProgressHUD)
 
 ---
 
