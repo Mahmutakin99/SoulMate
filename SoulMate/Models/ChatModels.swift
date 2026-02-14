@@ -117,8 +117,14 @@ struct IncomingRequestBadgeState: Equatable {
     let total: Int
     let pairCount: Int
     let unpairCount: Int
+    let latestIncomingRequestType: RelationshipRequestType?
 
-    static let empty = IncomingRequestBadgeState(total: 0, pairCount: 0, unpairCount: 0)
+    static let empty = IncomingRequestBadgeState(
+        total: 0,
+        pairCount: 0,
+        unpairCount: 0,
+        latestIncomingRequestType: nil
+    )
 }
 
 enum MoodStatus: String, CaseIterable, Codable {

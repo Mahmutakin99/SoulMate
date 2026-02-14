@@ -3758,6 +3758,91 @@
         }
       }
     },
+    "chat.reaction.more": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More Reactions"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daha Fazla Reaksiyon"
+          }
+        }
+      }
+    },
+    "chat.reaction.quick_picker.accessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quick reaction picker"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hızlı reaksiyon seçici"
+          }
+        }
+      }
+    },
+    "chat.reaction.panel.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick a reaction"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reaksiyon seç"
+          }
+        }
+      }
+    },
+    "chat.reaction.panel.section.frequent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frequent"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sık Kullanılanlar"
+          }
+        }
+      }
+    },
+    "chat.reaction.panel.section.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Emojis"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm Emojiler"
+          }
+        }
+      }
+    },
     "chat.reaction.error.invalid": {
       "extractionState": "manual",
       "localizations": {

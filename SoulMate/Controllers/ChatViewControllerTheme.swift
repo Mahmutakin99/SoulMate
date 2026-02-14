@@ -39,6 +39,17 @@ extension ChatViewController {
         let drawerRowBackground: UIColor
         let drawerRowTitle: UIColor
         let drawerRowValue: UIColor
+        let reactionPickerBackground: UIColor
+        let reactionPickerBorder: UIColor
+        let reactionChipBackground: UIColor
+        let reactionChipSelectedBackground: UIColor
+        let reactionChipText: UIColor
+        let reactionPlusBackground: UIColor
+        let reactionPlusTint: UIColor
+        let reactionPanelBackground: UIColor
+        let reactionPanelSectionTitle: UIColor
+        let reactionPanelEmojiBackground: UIColor
+        let reactionPanelEmojiText: UIColor
 
         // ── Cached theme instances ──
         private static let darkTheme = ChatTheme(
@@ -75,7 +86,18 @@ extension ChatViewController {
             drawerTitle: UIColor(red: 0.95, green: 0.95, blue: 0.98, alpha: 1),
             drawerRowBackground: UIColor(red: 0.2, green: 0.2, blue: 0.24, alpha: 1),
             drawerRowTitle: UIColor(red: 0.78, green: 0.78, blue: 0.84, alpha: 1),
-            drawerRowValue: UIColor(red: 0.96, green: 0.96, blue: 1, alpha: 1)
+            drawerRowValue: UIColor(red: 0.96, green: 0.96, blue: 1, alpha: 1),
+            reactionPickerBackground: UIColor(red: 0.14, green: 0.14, blue: 0.19, alpha: 0.96),
+            reactionPickerBorder: UIColor.white.withAlphaComponent(0.12),
+            reactionChipBackground: UIColor.white.withAlphaComponent(0.12),
+            reactionChipSelectedBackground: UIColor(red: 0.95, green: 0.24, blue: 0.55, alpha: 0.40),
+            reactionChipText: UIColor.white,
+            reactionPlusBackground: UIColor.white.withAlphaComponent(0.18),
+            reactionPlusTint: UIColor.white,
+            reactionPanelBackground: UIColor(red: 0.11, green: 0.11, blue: 0.15, alpha: 1),
+            reactionPanelSectionTitle: UIColor(red: 0.86, green: 0.86, blue: 0.92, alpha: 1),
+            reactionPanelEmojiBackground: UIColor.white.withAlphaComponent(0.12),
+            reactionPanelEmojiText: UIColor.white
         )
 
         static func current(for _: UITraitCollection) -> ChatTheme {
@@ -169,5 +191,6 @@ extension ChatViewController {
         }
 
         updateDetailsSidebarValues(for: lastRenderedState)
+        updateDetailsBadge(state: incomingRequestBadgeState)
     }
 }

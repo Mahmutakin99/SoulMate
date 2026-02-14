@@ -27,6 +27,7 @@ extension ChatViewController {
 
         viewModel.onMessagesUpdated = { [weak self] in
             guard let self else { return }
+            self.dismissReactionQuickPicker()
             guard self.isViewLoaded, self.view.window != nil else {
                 self.needsDeferredMessageReload = true
                 return
@@ -59,6 +60,7 @@ extension ChatViewController {
 
         viewModel.onMessagesPrepended = { [weak self] insertedCount in
             guard let self else { return }
+            self.dismissReactionQuickPicker()
             guard self.isViewLoaded, self.view.window != nil else {
                 self.needsDeferredMessageReload = true
                 return

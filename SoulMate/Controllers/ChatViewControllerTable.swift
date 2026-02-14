@@ -30,9 +30,8 @@ extension ChatViewController: UITableViewDataSource {
         cell.onSecretRevealed = { [weak self] in
             self?.markSecretMessageAsRevealed(message.id)
         }
-        cell.onReactionLongPress = { [weak self, weak cell] in
-            guard let self, let cell else { return }
-            self.presentReactionSheet(for: message, sourceView: cell)
+        cell.onReactionLongPress = { [weak self] anchorView in
+            self?.presentReactionQuickPicker(for: message, sourceView: anchorView)
         }
         return cell
     }
@@ -210,24 +209,4 @@ extension ChatViewController {
         viewModel.markVisibleIncomingMessagesAsRead(incomingIDs)
     }
 
-    func presentReactionSheet(for message: ChatMessage, sourceView: UIView) {
-        let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
-        let emojis = ["❤️", "😂", "🥰", "🔥", "😮", "😢", "👍", "🙏"]
-        emojis.forEach { emoji in
-            sheet.addAction(UIAlertAction(title: emoji, style: .default, handler: { [weak self] _ in
-                self?.viewModel.setReaction(messageID: message.id, emoji: emoji)
-            }))
-        }
-
-        sheet.addAction(UIAlertAction(title: L10n.t("chat.reaction.remove"), style: .destructive, handler: { [weak self] _ in
-            self?.viewModel.clearReaction(messageID: message.id)
-        }))
-        sheet.addAction(UIAlertAction(title: L10n.t("common.cancel"), style: .cancel))
-
-        if let popover = sheet.popoverPresentationController {
-            popover.sourceView = sourceView
-            popover.sourceRect = sourceView.bounds
-        }
-        _ = presentIfInHierarchy(sheet)
-    }
 }

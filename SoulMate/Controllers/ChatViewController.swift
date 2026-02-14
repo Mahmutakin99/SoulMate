@@ -102,6 +102,10 @@ final class ChatViewController: UIViewController {
     var previousLastMessageID: String?
     var gifPlaybackUpdateWorkItem: DispatchWorkItem?
     var incomingRequestBadgeState: IncomingRequestBadgeState = .empty
+    var hasInitializedRequestIndicator = false
+    var reactionPickerOverlay: UIControl?
+    var reactionQuickPickerView: ReactionQuickPickerView?
+    var activeReactionMessageID: String?
 
     var theme: ChatTheme!
     lazy var dismissKeyboardTapGesture = UITapGestureRecognizer(target: self, action: #selector(handleBackgroundTap))
@@ -164,6 +168,7 @@ final class ChatViewController: UIViewController {
         isVisible = false
         gifPlaybackUpdateWorkItem?.cancel()
         updateVisibleGIFPlayback(isEnabled: false)
+        dismissReactionQuickPicker()
         setDetailsDrawerVisibility(false, animated: false)
     }
 

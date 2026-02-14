@@ -239,18 +239,20 @@ extension ChatViewController {
             state: IncomingRequestBadgeState(
                 total: max(0, count),
                 pairCount: max(0, count),
-                unpairCount: 0
+                unpairCount: 0,
+                latestIncomingRequestType: count > 0 ? .pair : nil
             )
         )
     }
 
     func updateDetailsBadge(state: IncomingRequestBadgeState) {
-        let previousTotal = incomingRequestBadgeState.total
+        let previousState = incomingRequestBadgeState
         let normalizedTotal = max(0, state.total)
         incomingRequestBadgeState = IncomingRequestBadgeState(
             total: normalizedTotal,
             pairCount: max(0, state.pairCount),
-            unpairCount: max(0, state.unpairCount)
+            unpairCount: max(0, state.unpairCount),
+            latestIncomingRequestType: state.latestIncomingRequestType
         )
 
         let badgeText: String?
@@ -262,11 +264,11 @@ extension ChatViewController {
             badgeText = "\(normalizedTotal)"
         }
 
-        accountBadgeLabel.text = badgeText
-        accountBadgeLabel.isHidden = badgeText == nil
-        accountBadgeLabel.backgroundColor = incomingRequestBadgeState.unpairCount > 0
-            ? UIColor(red: 0.91, green: 0.24, blue: 0.27, alpha: 0.98)
-            : UIColor(red: 0.21, green: 0.70, blue: 0.36, alpha: 0.98)
+        let requestBadgeColor = colorForLatestIncomingRequestType()
+        updateAccountButtonSymbol(hasPendingRequest: normalizedTotal > 0, badgeColor: requestBadgeColor)
+
+        accountBadgeLabel.text = nil
+        accountBadgeLabel.isHidden = true
 
         if let badgeText {
             accountButton.accessibilityLabel = L10n.f("chat.account.badge.accessibility_format", badgeText)
@@ -274,25 +276,67 @@ extension ChatViewController {
             accountButton.accessibilityLabel = L10n.t("chat.account.accessibility")
         }
 
-        guard normalizedTotal > 0 else {
-            accountBadgeLabel.layer.removeAllAnimations()
-            accountBadgeLabel.transform = .identity
+        let didIncreaseCount = normalizedTotal > previousState.total
+        let didChangeLatestType = incomingRequestBadgeState.latestIncomingRequestType != previousState.latestIncomingRequestType
+        let shouldAnimateSymbol = hasInitializedRequestIndicator && normalizedTotal > 0 && (didIncreaseCount || didChangeLatestType)
+        hasInitializedRequestIndicator = true
+
+        guard shouldAnimateSymbol else {
+            accountButton.layer.removeAllAnimations()
+            accountButton.transform = .identity
             return
         }
-        if normalizedTotal > previousTotal {
-            accountBadgeLabel.layer.removeAllAnimations()
-            accountBadgeLabel.transform = .identity
-            accountBadgeLabel.alpha = 0.96
+
+        if #available(iOS 17.0, *) {
+            accountButton.imageView?.addSymbolEffect(.bounce.up.byLayer, options: .nonRepeating)
+        } else {
+            accountButton.layer.removeAllAnimations()
+            accountButton.transform = .identity
             UIView.animate(withDuration: 0.14, animations: {
-                self.accountBadgeLabel.transform = CGAffineTransform(scaleX: 1.12, y: 1.12)
-                self.accountBadgeLabel.alpha = 1
+                self.accountButton.transform = CGAffineTransform(scaleX: 1.1, y: 1.1)
             }) { _ in
-                UIView.animate(withDuration: 0.16) {
-                    self.accountBadgeLabel.transform = .identity
-                    self.accountBadgeLabel.alpha = 0.98
+                UIView.animate(withDuration: 0.14) {
+                    self.accountButton.transform = .identity
                 }
             }
         }
+    }
+
+    private func colorForLatestIncomingRequestType() -> UIColor {
+        switch incomingRequestBadgeState.latestIncomingRequestType {
+        case .some(.unpair):
+            return UIColor(red: 0.91, green: 0.24, blue: 0.27, alpha: 0.98)
+        case .some(.pair):
+            return UIColor(red: 0.21, green: 0.70, blue: 0.36, alpha: 0.98)
+        case .none:
+            return UIColor(red: 0.21, green: 0.70, blue: 0.36, alpha: 0.98)
+        }
+    }
+
+    private func updateAccountButtonSymbol(hasPendingRequest: Bool, badgeColor: UIColor) {
+        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 22, weight: .regular)
+
+        if !hasPendingRequest {
+            accountButton.tintColor = theme.accent
+            accountButton.setPreferredSymbolConfiguration(symbolConfig, forImageIn: .normal)
+            accountButton.setImage(UIImage(systemName: "person.crop.circle"), for: .normal)
+            return
+        }
+
+        let symbolName = "person.crop.circle.badge"
+        if let baseImage = UIImage(systemName: symbolName, withConfiguration: symbolConfig),
+           let paletteImage = baseImage
+            .applyingSymbolConfiguration(UIImage.SymbolConfiguration(paletteColors: [theme.accent, badgeColor]))?
+            .withRenderingMode(.alwaysOriginal) {
+            accountButton.tintColor = nil
+            accountButton.setImage(paletteImage, for: .normal)
+            return
+        }
+
+        // Palette rendering support is device/OS dependent; fallback keeps badge visible.
+        accountButton.tintColor = badgeColor
+        accountButton.setPreferredSymbolConfiguration(symbolConfig, forImageIn: .normal)
+        accountButton.setImage(UIImage(systemName: symbolName), for: .normal)
     }
 
     func updateDetailsSidebarValues(for state: ChatViewModel.ScreenState) {

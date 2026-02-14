@@ -16,6 +16,11 @@ extension ChatViewModel {
         return formatter
     }()
 
+    private static let defaultQuickReactionEmojis = ["❤️", "😂", "🥰", "🔥", "😮"]
+    private static let defaultFrequentReactionSeed = [
+        "❤️", "😂", "🥰", "🔥", "😮", "😢", "👍", "🙏", "👏", "🎉", "🤍", "😘"
+    ]
+
     func sendText(_ text: String, isSecret: Bool) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -33,6 +38,44 @@ extension ChatViewModel {
     func isIncomingMessageForCurrentUser(_ message: ChatMessage) -> Bool {
         guard let currentUserID else { return false }
         return message.recipientID == currentUserID && message.senderID != currentUserID
+    }
+
+    func currentUserReactionEmoji(for messageID: String) -> String? {
+        guard let currentUserID else { return nil }
+        return messageReactionsByMessageID[messageID]?.first(where: { $0.reactorUID == currentUserID })?.emoji
+    }
+
+    func quickReactionEmojis(maxCount: Int) -> [String] {
+        guard let currentUserID else {
+            return Array(Self.defaultQuickReactionEmojis.prefix(max(0, maxCount)))
+        }
+        return reactionUsageStore.topEmojis(
+            uid: currentUserID,
+            maxCount: maxCount,
+            fallback: Self.defaultQuickReactionEmojis
+        )
+    }
+
+    func frequentReactionEmojis(maxCount: Int) -> [String] {
+        guard let currentUserID else {
+            return Array(Self.defaultFrequentReactionSeed.prefix(max(0, maxCount)))
+        }
+        return reactionUsageStore.topEmojis(
+            uid: currentUserID,
+            maxCount: maxCount,
+            fallback: Self.defaultFrequentReactionSeed
+        )
+    }
+
+    func toggleReaction(messageID: String, emoji: String) {
+        let trimmedEmoji = emoji.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedEmoji.isEmpty else { return }
+
+        if currentUserReactionEmoji(for: messageID) == trimmedEmoji {
+            clearReaction(messageID: messageID)
+        } else {
+            setReaction(messageID: messageID, emoji: trimmedEmoji)
+        }
     }
 
     func setReaction(messageID: String, emoji: String) {
@@ -91,6 +134,11 @@ extension ChatViewModel {
                     self?.messageReactionsByMessageID[messageID] = currentReactions
                     self?.rebuildMessageMetadata(for: [messageID], notify: true)
                 }
+                self?.reactionUsageStore.recordUsage(
+                    emoji: trimmedEmoji,
+                    uid: currentUserID,
+                    at: updatedAt
+                )
             }
         } catch {
             emitError(error)

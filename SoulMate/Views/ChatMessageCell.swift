@@ -20,7 +20,7 @@ final class ChatMessageCell: UITableViewCell {
     private static let incomingTextDark = UIColor(red: 0.93, green: 0.93, blue: 0.97, alpha: 1)
     private static let metaOutgoing = UIColor.white.withAlphaComponent(0.86)
     private static let metaIncomingDark = UIColor(red: 0.75, green: 0.76, blue: 0.84, alpha: 1)
-    private static let readTickColor = UIColor(red: 0.99, green: 0.57, blue: 0.79, alpha: 1)
+    private static let readTickColor = UIColor(red: 0.56, green: 0.93, blue: 1.0, alpha: 1)
 
     private static let textFont = UIFont(name: "AvenirNext-Medium", size: 17) ?? .systemFont(ofSize: 17, weight: .medium)
     private static let nudgeFont = UIFont(name: "AvenirNext-DemiBold", size: 17) ?? .systemFont(ofSize: 17, weight: .semibold)
@@ -37,7 +37,7 @@ final class ChatMessageCell: UITableViewCell {
     private let defaultGIFLoopCount = 3
     private let manualReplayLoopCount = 1
     var onSecretRevealed: (() -> Void)?
-    var onReactionLongPress: (() -> Void)?
+    var onReactionLongPress: ((UIView) -> Void)?
 
     private let bubbleView = UIView()
     private let messageLabel = UILabel()
@@ -223,7 +223,7 @@ final class ChatMessageCell: UITableViewCell {
 
     @objc private func handleBubbleLongPress(_ recognizer: UILongPressGestureRecognizer) {
         guard recognizer.state == .began else { return }
-        onReactionLongPress?()
+        onReactionLongPress?(bubbleView)
     }
 
     @objc private func handleGIFTap() {

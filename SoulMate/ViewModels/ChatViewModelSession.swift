@@ -435,16 +435,26 @@ extension ChatViewModel {
             uid: uid,
             onChange: { [weak self] requests in
                 guard let self else { return }
-                let pendingCount = requests.filter { $0.status == .pending && !$0.isExpired }.count
-                let pairCount = requests.filter { $0.status == .pending && !$0.isExpired && $0.type == .pair }.count
-                let unpairCount = requests.filter { $0.status == .pending && !$0.isExpired && $0.type == .unpair }.count
+                let pendingRequests = requests.filter { $0.status == .pending && !$0.isExpired }
+                let pendingCount = pendingRequests.count
+                let pairCount = pendingRequests.filter { $0.type == .pair }.count
+                let unpairCount = pendingRequests.filter { $0.type == .unpair }.count
+                let latestIncomingType = pendingRequests
+                    .max { lhs, rhs in
+                        if lhs.createdAt != rhs.createdAt {
+                            return lhs.createdAt < rhs.createdAt
+                        }
+                        return lhs.id < rhs.id
+                    }?
+                    .type
                 self.notifyOnMain {
                     self.onIncomingPendingRequestCountChanged?(pendingCount)
                     self.onIncomingPendingRequestBadgeChanged?(
                         IncomingRequestBadgeState(
                             total: pendingCount,
                             pairCount: pairCount,
-                            unpairCount: unpairCount
+                            unpairCount: unpairCount,
+                            latestIncomingRequestType: latestIncomingType
                         )
                     )
                 }

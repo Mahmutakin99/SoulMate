@@ -46,6 +46,7 @@ final class ChatViewModel {
     let encryption: EncryptionService
     let locationService: LocationSharingService
     let localMessageStore: LocalMessageStore
+    let reactionUsageStore: ReactionUsageStore
     let jsonEncoder = JSONEncoder()
     let jsonDecoder = JSONDecoder()
 
@@ -119,12 +120,14 @@ final class ChatViewModel {
         firebase: FirebaseManager = .shared,
         encryption: EncryptionService = .shared,
         locationService: LocationSharingService = LocationSharingService(),
-        localMessageStore: LocalMessageStore = .shared
+        localMessageStore: LocalMessageStore = .shared,
+        reactionUsageStore: ReactionUsageStore = .shared
     ) {
         self.firebase = firebase
         self.encryption = encryption
         self.locationService = locationService
         self.localMessageStore = localMessageStore
+        self.reactionUsageStore = reactionUsageStore
 
         self.messageSyncService.onError = { [weak self] error in
             self?.handleMessageSyncError(error)
