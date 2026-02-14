@@ -8,7 +8,7 @@ SoulMate, çiftler için özel iletişime odaklanan, modern ve güvenli bir iOS 
 *   **Çift Odaklı Tasarım**: Sadece eşleştiğiniz kişiyle iletişim kurabilirsiniz.
 *   **Local-First Mimari**: Mesajlar önce cihaz veritabanına kaydedilir, internet bağlantısı olmasa bile geçmişe erişim sağlar.
 *   **Tek Cihaz Kilidi**: Aynı hesabın birden fazla cihazda eşzamanlı kullanılmasını engelleyerek güvenlik sağlar.
-*   **Gelişmiş Medya Desteği**: Text, Emoji, GIF ve özel "Kalp Atışı" mesajları.
+*   **Gelişmiş Medya Desteği**: Text, Emoji ve özel "Kalp Atışı" mesajları.
 *   **Bildirimler**: Arka planda şifre çözme yeteneğine sahip zengin bildirimler.
 
 ## Kullanılan Teknolojiler

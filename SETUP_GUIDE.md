@@ -38,9 +38,10 @@ Bu rehber, SoulMate iOS projesini sıfırdan kurmak, yapılandırmak ve dağıtm
 
 2.  Swift Paketlerini Yükleyin:
     Xcode üzerinden `File > Add Package Dependencies` menüsünü kullanarak aşağıdaki paketlerin yüklü olduğundan emin olun:
-    *   `firebase-ios-sdk` (Auth, Database, Messaging, Crashlytics)
-    *   `giphy-ios-sdk` (GiphyUISDK)
-    *   `SDWebImage`
+    *   `firebase-ios-sdk` (Auth, Database, Messaging, Crashlytics) (github.com/firebase/firebase-ios-sdk)
+    *   `giphy-ios-sdk` (GiphyUISDK) (github.com/firebase/firebase-ios-sdk) ! Kullanabilmek API anahtarı almanız gereklidir.
+    *   `SDWebImage` (github.com/SDWebImage/SDWebImage.git)
+    *   `JGProgressHUD` İsteğe bağlı (https://github.com/JonasGessner/JGProgressHUD)
 
 ---
 
