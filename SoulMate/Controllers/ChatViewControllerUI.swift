@@ -32,15 +32,14 @@ extension ChatViewController {
             self?.onRequestPairingManagement?()
         }
 
-        let signOutAction = UIAction(
-            title: L10n.t("chat.menu.sign_out"),
-            image: UIImage(systemName: "rectangle.portrait.and.arrow.right"),
-            attributes: .destructive
+        let profileManagementAction = UIAction(
+            title: L10n.t("chat.menu.profile_management"),
+            image: UIImage(systemName: "person.text.rectangle")
         ) { [weak self] _ in
-            self?.onRequestSignOut?()
+            self?.onRequestProfileManagement?()
         }
 
-        let menu = UIMenu(title: "", children: [pairingAction, signOutAction])
+        let menu = UIMenu(title: "", children: [pairingAction, profileManagementAction])
         let accountItem = makeAccountBarButtonItem(menu: menu)
         let detailsItem = makeDetailsBarButtonItem()
         navigationItem.rightBarButtonItems = [accountItem, detailsItem]
@@ -252,7 +251,7 @@ extension ChatViewController {
 
             inputContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             inputContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            inputContainer.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -8)
+            inputContainer.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: 20) // input alanı
         ])
 
         inputTopToEmojiConstraint.isActive = isQuickEmojiVisible

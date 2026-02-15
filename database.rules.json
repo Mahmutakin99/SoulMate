@@ -129,6 +129,28 @@
         ".read": "auth != null && (data.child('fromUID').val() === auth.uid || data.child('toUID').val() === auth.uid)",
         ".write": false
       }
+    },
+    "systemNotices": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid && !newData.exists()",
+        ".validate": "!newData.exists() || (newData.hasChildren(['type','sourceUID','sourceName','createdAt']) && newData.child('type').isString() && newData.child('type').val() === 'partner_account_deleted' && newData.child('sourceUID').isString() && newData.child('sourceUID').val().length > 0 && newData.child('sourceName').isString() && newData.child('sourceName').val().length > 0 && newData.child('createdAt').isNumber())",
+        "type": {
+          ".validate": "newData.isString() && newData.val() === 'partner_account_deleted'"
+        },
+        "sourceUID": {
+          ".validate": "newData.isString() && newData.val().length > 0"
+        },
+        "sourceName": {
+          ".validate": "newData.isString() && newData.val().length > 0"
+        },
+        "createdAt": {
+          ".validate": "newData.isNumber()"
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
     }
   }
 }

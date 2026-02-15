@@ -574,6 +574,35 @@ final class LocalMessageStore {
         }
     }
 
+    func wipeAllData() throws {
+        try queue.sync {
+            guard let db else { throw LocalMessageStoreError.databaseUnavailable }
+
+            guard sqlite3_exec(db, "BEGIN IMMEDIATE TRANSACTION;", nil, nil, nil) == SQLITE_OK else {
+                throw LocalMessageStoreError.executionFailed
+            }
+
+            do {
+                for sql in [
+                    "DELETE FROM local_messages;",
+                    "DELETE FROM local_message_receipts;",
+                    "DELETE FROM local_message_reactions;"
+                ] {
+                    if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
+                        throw LocalMessageStoreError.executionFailed
+                    }
+                }
+
+                guard sqlite3_exec(db, "COMMIT;", nil, nil, nil) == SQLITE_OK else {
+                    throw LocalMessageStoreError.executionFailed
+                }
+            } catch {
+                sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
+                throw error
+            }
+        }
+    }
+
     func count(chatID: String) throws -> Int {
         try queue.sync {
             guard let db else { throw LocalMessageStoreError.databaseUnavailable }

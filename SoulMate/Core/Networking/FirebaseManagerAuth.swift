@@ -25,6 +25,43 @@ extension FirebaseManager {
         #endif
     }
 
+    func currentUserEmail() -> String? {
+        #if canImport(FirebaseAuth)
+        return Auth.auth().currentUser?.email
+        #else
+        return nil
+        #endif
+    }
+
+    func isEmailAlreadyInUse(_ email: String, completion: @escaping (Result<Bool, Error>) -> Void) {
+        #if canImport(FirebaseFunctions)
+        guard isFirebaseConfigured() else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("firebase.error.config_missing_plist"))))
+            return
+        }
+
+        let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !cleanEmail.isEmpty else {
+            completion(.success(false))
+            return
+        }
+
+        let callable = Functions.functions(region: "europe-west1").httpsCallable("checkEmailInUse")
+        callable.call(["email": cleanEmail]) { [weak self] result, error in
+            if let error {
+                completion(.failure(self?.mapFunctionsError(error, action: "checkEmailInUse") ?? error))
+                return
+            }
+
+            let payload = result?.data as? [String: Any]
+            let inUse = payload?["inUse"] as? Bool ?? false
+            completion(.success(inUse))
+        }
+        #else
+        completion(.failure(FirebaseManagerError.sdkMissing))
+        #endif
+    }
+
     func resolveLaunchState(completion: @escaping (Result<AppLaunchState, Error>) -> Void) {
         guard let uid = currentUserID() else {
             completion(.success(.unauthenticated))
@@ -209,6 +246,97 @@ extension FirebaseManager {
                 }
             case .failure(let error):
                 completion(.failure(error))
+            }
+        }
+        #else
+        completion(.failure(FirebaseManagerError.sdkMissing))
+        #endif
+    }
+
+    func reauthenticateCurrentUser(currentPassword: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        #if canImport(FirebaseAuth)
+        guard isFirebaseConfigured() else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("firebase.error.config_not_ready_restart"))))
+            return
+        }
+        guard let user = Auth.auth().currentUser,
+              let email = user.email,
+              !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            completion(.failure(FirebaseManagerError.unauthenticated))
+            return
+        }
+
+        let trimmedPassword = currentPassword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPassword.isEmpty else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("profile.management.error.current_password_required"))))
+            return
+        }
+
+        let credential = EmailAuthProvider.credential(withEmail: email, password: trimmedPassword)
+        user.reauthenticate(with: credential) { [weak self] _, error in
+            if let error {
+                completion(.failure(self?.mapAuthError(error, action: L10n.t("profile.management.button.change_password")) ?? error))
+            } else {
+                completion(.success(()))
+            }
+        }
+        #else
+        completion(.failure(FirebaseManagerError.sdkMissing))
+        #endif
+    }
+
+    func changeMyPassword(newPassword: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        #if canImport(FirebaseFunctions)
+        guard isFirebaseConfigured() else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("firebase.error.config_not_ready_restart"))))
+            return
+        }
+        guard currentUserID() != nil else {
+            completion(.failure(FirebaseManagerError.unauthenticated))
+            return
+        }
+
+        let trimmedPassword = newPassword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPassword.isEmpty else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("profile.management.error.password_empty"))))
+            return
+        }
+
+        let callable = Functions.functions(region: "europe-west1").httpsCallable("changeMyPassword")
+        callable.call(["newPassword": trimmedPassword]) { [weak self] _, error in
+            if let error {
+                completion(.failure(self?.mapFunctionsError(error, action: "changeMyPassword") ?? error))
+            } else {
+                completion(.success(()))
+            }
+        }
+        #else
+        completion(.failure(FirebaseManagerError.sdkMissing))
+        #endif
+    }
+
+    func deleteMyAccount(
+        installationID: String = InstallationIDProvider.shared.installationID(),
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        #if canImport(FirebaseFunctions)
+        guard isFirebaseConfigured() else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("firebase.error.config_not_ready_restart"))))
+            return
+        }
+        guard currentUserID() != nil else {
+            completion(.failure(FirebaseManagerError.unauthenticated))
+            return
+        }
+
+        let callable = Functions.functions(region: "europe-west1").httpsCallable("deleteMyAccount")
+        callable.call([
+            "installationID": installationID
+        ]) { [weak self] _, error in
+            if let error {
+                completion(.failure(self?.mapFunctionsError(error, action: "deleteMyAccount") ?? error))
+            } else {
+                completion(.success(()))
             }
         }
         #else

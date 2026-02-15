@@ -19,8 +19,28 @@ final class AuthViewModel {
 
     private let firebase: FirebaseManager
 
+    private let passwordPolicyPattern = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d).+$"
+
     init(firebase: FirebaseManager = .shared) {
         self.firebase = firebase
+    }
+
+    func isStrongPassword(_ password: String) -> Bool {
+        let clean = password.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard clean.count >= 8, clean.count <= 64 else { return false }
+        return clean.range(of: passwordPolicyPattern, options: .regularExpression) != nil
+    }
+
+    func checkEmailInUse(_ email: String, completion: @escaping (Result<Bool, Error>) -> Void) {
+        let cleanEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !cleanEmail.isEmpty else {
+            completion(.success(false))
+            return
+        }
+
+        firebase.isEmailAlreadyInUse(cleanEmail) { result in
+            completion(result)
+        }
     }
 
     func submit(
@@ -67,25 +87,54 @@ final class AuthViewModel {
                 return
             }
 
-            guard cleanPassword.count >= 6 else {
+            guard isStrongPassword(cleanPassword) else {
                 onLoadingChanged?(false)
-                onError?(L10n.t("auth.error.password_min_length"))
+                onError?(L10n.t("auth.error.password_policy"))
                 return
             }
 
-            firebase.createAccount(
-                email: cleanEmail,
-                password: cleanPassword,
-                firstName: cleanFirstName,
-                lastName: cleanLastName
-            ) { [weak self] result in
-                self?.onLoadingChanged?(false)
-                switch result {
-                case .success:
-                    self?.onSuccess?()
-                case .failure(let error):
-                    self?.emitError(error)
+            firebase.isEmailAlreadyInUse(cleanEmail) { [weak self] availabilityResult in
+                guard let self else { return }
+
+                switch availabilityResult {
+                case .success(let inUse):
+                    if inUse {
+                        self.onLoadingChanged?(false)
+                        self.onError?(L10n.t("auth.error.email_in_use"))
+                        return
+                    }
+                    self.createAccount(
+                        email: cleanEmail,
+                        password: cleanPassword,
+                        firstName: cleanFirstName,
+                        lastName: cleanLastName
+                    )
+                case .failure:
+                    // If proactive lookup fails, continue with create flow and rely on backend/Auth validation.
+                    self.createAccount(
+                        email: cleanEmail,
+                        password: cleanPassword,
+                        firstName: cleanFirstName,
+                        lastName: cleanLastName
+                    )
                 }
+            }
+        }
+    }
+
+    private func createAccount(email: String, password: String, firstName: String, lastName: String) {
+        firebase.createAccount(
+            email: email,
+            password: password,
+            firstName: firstName,
+            lastName: lastName
+        ) { [weak self] result in
+            self?.onLoadingChanged?(false)
+            switch result {
+            case .success:
+                self?.onSuccess?()
+            case .failure(let error):
+                self?.emitError(error)
             }
         }
     }

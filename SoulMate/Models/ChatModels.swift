@@ -127,6 +127,33 @@ struct IncomingRequestBadgeState: Equatable {
     )
 }
 
+enum SystemNoticeType: String, Codable {
+    case partnerAccountDeleted = "partner_account_deleted"
+}
+
+struct SystemNotice: Hashable {
+    let type: SystemNoticeType
+    let sourceUID: String
+    let sourceName: String
+    let createdAt: Date
+
+    init?(
+        dictionary: [String: Any]
+    ) {
+        guard let typeRaw = dictionary["type"] as? String,
+              let type = SystemNoticeType(rawValue: typeRaw),
+              let sourceUID = dictionary["sourceUID"] as? String else {
+            return nil
+        }
+
+        self.type = type
+        self.sourceUID = sourceUID
+        self.sourceName = (dictionary["sourceName"] as? String) ?? ""
+        let createdAtRaw = dictionary["createdAt"] as? TimeInterval ?? Date().timeIntervalSince1970
+        self.createdAt = Date(timeIntervalSince1970: createdAtRaw)
+    }
+}
+
 enum MoodStatus: String, CaseIterable, Codable {
     case happy
     case busy

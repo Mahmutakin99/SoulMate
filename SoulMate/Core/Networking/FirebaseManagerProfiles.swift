@@ -259,4 +259,52 @@ extension FirebaseManager {
         return FirebaseObservationToken {}
         #endif
     }
+
+    func fetchSystemNotice(uid: String, completion: @escaping (Result<SystemNotice?, Error>) -> Void) {
+        #if canImport(FirebaseDatabase)
+        guard isFirebaseConfigured() else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("firebase.error.config_not_ready_restart"))))
+            return
+        }
+
+        let path = "\(AppConfiguration.DatabasePath.systemNotices)/\(uid)"
+        rootRef()
+            .child(AppConfiguration.DatabasePath.systemNotices)
+            .child(uid)
+            .observeSingleEvent(of: .value, with: { snapshot in
+                guard let dictionary = snapshot.value as? [String: Any] else {
+                    completion(.success(nil))
+                    return
+                }
+                completion(.success(SystemNotice(dictionary: dictionary)))
+            }, withCancel: { error in
+                completion(.failure(self.mapDatabaseError(error, path: path)))
+            })
+        #else
+        completion(.failure(FirebaseManagerError.sdkMissing))
+        #endif
+    }
+
+    func clearSystemNotice(uid: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        #if canImport(FirebaseDatabase)
+        guard isFirebaseConfigured() else {
+            completion(.failure(FirebaseManagerError.generic(L10n.t("firebase.error.config_not_ready_restart"))))
+            return
+        }
+
+        let path = "\(AppConfiguration.DatabasePath.systemNotices)/\(uid)"
+        rootRef()
+            .child(AppConfiguration.DatabasePath.systemNotices)
+            .child(uid)
+            .removeValue { error, _ in
+                if let error {
+                    completion(.failure(self.mapDatabaseError(error, path: path)))
+                } else {
+                    completion(.success(()))
+                }
+            }
+        #else
+        completion(.failure(FirebaseManagerError.sdkMissing))
+        #endif
+    }
 }

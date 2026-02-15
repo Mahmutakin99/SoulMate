@@ -51,6 +51,7 @@ extension ChatViewController {
             titleKey: "chat.sidebar.item.partner_mood"
         )
         setupSplashPreferenceRow()
+        setupHeartbeatPreferenceRows()
         setupMoodSectionForSidebar()
 
         detailsStack.addArrangedSubview(secureInfoRow)
@@ -58,6 +59,8 @@ extension ChatViewController {
         detailsStack.addArrangedSubview(distanceInfoRow)
         detailsStack.addArrangedSubview(partnerMoodInfoRow)
         detailsStack.addArrangedSubview(splashPreferenceRow)
+        detailsStack.addArrangedSubview(heartbeatTempoRow)
+        detailsStack.addArrangedSubview(heartbeatIntensityRow)
         detailsStack.addArrangedSubview(moodSectionContainer)
 
         secureStatusValueLabel.text = L10n.t("chat.sidebar.value.inactive")
@@ -232,6 +235,73 @@ extension ChatViewController {
             rowStack.leadingAnchor.constraint(equalTo: splashPreferenceRow.leadingAnchor, constant: 12),
             rowStack.trailingAnchor.constraint(equalTo: splashPreferenceRow.trailingAnchor, constant: -12)
         ])
+    }
+
+    private func setupHeartbeatPreferenceRows() {
+        setupSegmentedPreferenceRow(
+            container: heartbeatTempoRow,
+            titleLabel: heartbeatTempoTitleLabel,
+            title: localizedHeartbeatTempoTitle(),
+            segmentedControl: heartbeatTempoControl
+        )
+
+        setupSegmentedPreferenceRow(
+            container: heartbeatIntensityRow,
+            titleLabel: heartbeatIntensityTitleLabel,
+            title: localizedHeartbeatIntensityTitle(),
+            segmentedControl: heartbeatIntensityControl
+        )
+
+        heartbeatTempoControl.selectedSegmentIndex = heartbeatTempoPreference.rawValue
+        heartbeatIntensityControl.selectedSegmentIndex = heartbeatIntensityPreference.rawValue
+        heartbeatTempoControl.addTarget(self, action: #selector(heartbeatTempoChanged(_:)), for: .valueChanged)
+        heartbeatIntensityControl.addTarget(self, action: #selector(heartbeatIntensityChanged(_:)), for: .valueChanged)
+    }
+
+    private func setupSegmentedPreferenceRow(
+        container: UIView,
+        titleLabel: UILabel,
+        title: String,
+        segmentedControl: UISegmentedControl
+    ) {
+        container.layer.cornerRadius = 12
+        container.layer.cornerCurve = .continuous
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        titleLabel.text = title
+        titleLabel.font = UIFont(name: "AvenirNext-Medium", size: 13) ?? .systemFont(ofSize: 13, weight: .medium)
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        segmentedControl.translatesAutoresizingMaskIntoConstraints = false
+
+        let rowStack = UIStackView(arrangedSubviews: [titleLabel, segmentedControl])
+        rowStack.axis = .vertical
+        rowStack.alignment = .fill
+        rowStack.spacing = 8
+        rowStack.translatesAutoresizingMaskIntoConstraints = false
+
+        container.addSubview(rowStack)
+
+        NSLayoutConstraint.activate([
+            rowStack.topAnchor.constraint(equalTo: container.topAnchor, constant: 10),
+            rowStack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -10),
+            rowStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            rowStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12)
+        ])
+    }
+
+    private func localizedHeartbeatTempoTitle() -> String {
+        if Locale.preferredLanguages.first?.lowercased().hasPrefix("tr") == true {
+            return "Kalp Atışı Hızı"
+        }
+        return "Heartbeat Tempo"
+    }
+
+    private func localizedHeartbeatIntensityTitle() -> String {
+        if Locale.preferredLanguages.first?.lowercased().hasPrefix("tr") == true {
+            return "Titreşim Şiddeti"
+        }
+        return "Haptic Intensity"
     }
 
     func updateDetailsBadge(count: Int) {
@@ -416,6 +486,19 @@ extension ChatViewController {
     @objc func splashPreferenceChanged(_ sender: UISwitch) {
         showsSplashOnLaunch = sender.isOn
         UserDefaults.standard.set(sender.isOn, forKey: AppConfiguration.UserPreferenceKey.showsSplashOnLaunch)
+    }
+
+    @objc func heartbeatTempoChanged(_ sender: UISegmentedControl) {
+        let selected = HeartbeatTempoPreference(rawValue: sender.selectedSegmentIndex) ?? .calm
+        heartbeatTempoPreference = selected
+        UserDefaults.standard.set(selected.rawValue, forKey: AppConfiguration.UserPreferenceKey.heartbeatTempoPreset)
+        restartHeartbeatHoldTimerIfNeeded()
+    }
+
+    @objc func heartbeatIntensityChanged(_ sender: UISegmentedControl) {
+        let selected = HeartbeatIntensityPreference(rawValue: sender.selectedSegmentIndex) ?? .medium
+        heartbeatIntensityPreference = selected
+        UserDefaults.standard.set(selected.rawValue, forKey: AppConfiguration.UserPreferenceKey.heartbeatIntensityPreset)
     }
 
     @objc func moodButtonTapped(_ sender: UIButton) {

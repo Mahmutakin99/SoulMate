@@ -516,7 +516,7 @@ extension ChatViewModel {
         firebase.sendHeartbeat(chatID: chatID, senderID: currentUserID) { [weak self] result in
             switch result {
             case .success:
-                HapticEngine.playHeartbeatPattern()
+                break
             case .failure(let error):
                 self?.emitError(error)
             }

@@ -37,8 +37,12 @@ extension ChatViewController {
         composerSendButton.addTarget(self, action: #selector(sendButtonTapped), for: .touchUpInside)
 
         emojiToggleButton.addTarget(self, action: #selector(emojiToggleTapped), for: .touchUpInside)
+        heartButton.addTarget(self, action: #selector(heartButtonTapped), for: .touchUpInside)
 
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(heartLongPress(_:)))
+        longPress.minimumPressDuration = AppConfiguration.Heartbeat.longPressStartDelaySeconds
+        longPress.allowableMovement = AppConfiguration.Heartbeat.longPressAllowableMovement
+        longPress.cancelsTouchesInView = true
         heartButton.addGestureRecognizer(longPress)
 
         let composerRow = UIStackView(arrangedSubviews: [messageTextField, composerSendButton])
@@ -240,9 +244,131 @@ extension ChatViewController {
         }
     }
 
+    @objc func heartButtonTapped() {
+        guard heartButton.isEnabled else { return }
+        guard !suppressHeartTapUntilNextRunLoop else { return }
+        performHeartbeatFeedbackPulse()
+        sendHeartbeatIfCooldownAllows()
+    }
+
     @objc func heartLongPress(_ recognizer: UILongPressGestureRecognizer) {
-        if recognizer.state == .began {
-            viewModel.sendHeartbeat()
+        switch recognizer.state {
+        case .began:
+            beginHeartbeatHoldSession()
+
+        case .changed:
+            guard isHeartbeatHoldActive else { return }
+            let location = recognizer.location(in: heartButton)
+            let expandedBounds = heartButton.bounds.insetBy(dx: -4, dy: -4)
+            if !expandedBounds.contains(location) {
+                stopHeartbeatHoldSession()
+            }
+
+        case .ended, .cancelled, .failed:
+            stopHeartbeatHoldSession()
+
+        default:
+            break
+        }
+    }
+
+    func beginHeartbeatHoldSession() {
+        guard heartButton.isEnabled else { return }
+        guard !isHeartbeatHoldActive else { return }
+
+        suppressHeartTapUntilNextRunLoop = true
+        isHeartbeatHoldActive = true
+        setHeartButtonHoldVisual(isActive: true)
+        performHeartbeatHoldTick()
+        restartHeartbeatHoldTimerIfNeeded()
+
+        heartbeatHoldTimeoutWorkItem?.cancel()
+        let timeoutWorkItem = DispatchWorkItem { [weak self] in
+            self?.stopHeartbeatHoldSession()
+        }
+        heartbeatHoldTimeoutWorkItem = timeoutWorkItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + AppConfiguration.Heartbeat.maxHoldDurationSeconds,
+            execute: timeoutWorkItem
+        )
+    }
+
+    func stopHeartbeatHoldSession() {
+        guard isHeartbeatHoldActive ||
+                heartbeatLoopTimer != nil ||
+                heartbeatHoldTimeoutWorkItem != nil else {
+            resetHeartTapSuppressionNextRunLoop()
+            return
+        }
+
+        isHeartbeatHoldActive = false
+        heartbeatLoopTimer?.invalidate()
+        heartbeatLoopTimer = nil
+        heartbeatHoldTimeoutWorkItem?.cancel()
+        heartbeatHoldTimeoutWorkItem = nil
+        setHeartButtonHoldVisual(isActive: false)
+        resetHeartTapSuppressionNextRunLoop()
+    }
+
+    func restartHeartbeatHoldTimerIfNeeded() {
+        guard isHeartbeatHoldActive else { return }
+        heartbeatLoopTimer?.invalidate()
+        let interval = max(0.35, heartbeatTempoPreference.cycleInterval)
+        heartbeatLoopTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            self?.performHeartbeatHoldTick()
+        }
+        heartbeatLoopTimer?.tolerance = 0.08
+    }
+
+    private func performHeartbeatHoldTick() {
+        guard isHeartbeatHoldActive else { return }
+        performHeartbeatFeedbackPulse()
+        sendHeartbeatIfCooldownAllows()
+    }
+
+    private func performHeartbeatFeedbackPulse() {
+        HapticEngine.playHeartbeatPattern(
+            primaryIntensity: heartbeatIntensityPreference.primaryImpact,
+            secondaryIntensity: heartbeatIntensityPreference.secondaryImpact,
+            interBeatDelay: AppConfiguration.Heartbeat.lubDubDelaySeconds
+        )
+        animateHeartbeatButtonPulse()
+    }
+
+    private func animateHeartbeatButtonPulse() {
+        let restingTransform = isHeartbeatHoldActive ? CGAffineTransform(scaleX: 1.03, y: 1.03) : .identity
+        UIView.animate(withDuration: 0.1, delay: 0, options: [.beginFromCurrentState, .curveEaseOut]) {
+            self.heartButton.transform = CGAffineTransform(scaleX: 1.14, y: 1.14)
+        } completion: { _ in
+            UIView.animate(withDuration: 0.16, delay: 0, options: [.beginFromCurrentState, .curveEaseInOut]) {
+                self.heartButton.transform = restingTransform
+            }
+        }
+    }
+
+    private func setHeartButtonHoldVisual(isActive: Bool) {
+        heartButton.layer.shadowColor = theme.heartbeatAction.cgColor
+        heartButton.layer.shadowOffset = .zero
+        heartButton.layer.shadowRadius = isActive ? 10 : 0
+        heartButton.layer.shadowOpacity = isActive ? 0.42 : 0
+        if !isActive {
+            heartButton.transform = .identity
+        }
+    }
+
+    private func sendHeartbeatIfCooldownAllows() {
+        let now = Date()
+        if let lastHeartbeatSendAt,
+           now.timeIntervalSince(lastHeartbeatSendAt) < AppConfiguration.Heartbeat.minSendIntervalSeconds {
+            return
+        }
+        lastHeartbeatSendAt = now
+        viewModel.sendHeartbeat()
+    }
+
+    private func resetHeartTapSuppressionNextRunLoop() {
+        DispatchQueue.main.async { [weak self] in
+            self?.suppressHeartTapUntilNextRunLoop = false
         }
     }
 }

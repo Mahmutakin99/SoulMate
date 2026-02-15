@@ -20,6 +20,7 @@ enum AppVisualTheme {
     static let textPrimary = UIColor(red: 0.95, green: 0.95, blue: 0.98, alpha: 1)
     static let textSecondary = UIColor(red: 0.78, green: 0.78, blue: 0.84, alpha: 1)
     static let accent = UIColor(red: 0.86, green: 0.18, blue: 0.44, alpha: 1)
+    static let secondaryAction = UIColor(red: 0.32, green: 0.56, blue: 0.95, alpha: 1)
 
     static func applyBackground(to view: UIView, gradientLayer: CAGradientLayer) {
         view.backgroundColor = backgroundBase

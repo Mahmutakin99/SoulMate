@@ -26,6 +26,7 @@ final class PairingViewModel {
     private let firebase: FirebaseManager
     private let encryption: EncryptionService
     private let localMessageStore: LocalMessageStore
+    private let defaults: UserDefaults
 
     private var currentUID: String?
     private var currentPartnerID: String?
@@ -37,6 +38,8 @@ final class PairingViewModel {
     private var isMutuallyPaired = false
     private var outgoingRequests: [RelationshipRequest] = []
     private var hasLocalPendingUnpairRequest = false
+    private var hasCheckedSystemNotice = false
+    private let systemNoticeSeenKeyPrefix = "pairing.system_notice.last_seen"
 
     var isUnpairRequestPending: Bool {
         hasOutgoingPendingUnpairRequest
@@ -45,11 +48,13 @@ final class PairingViewModel {
     init(
         firebase: FirebaseManager = .shared,
         encryption: EncryptionService = .shared,
-        localMessageStore: LocalMessageStore = .shared
+        localMessageStore: LocalMessageStore = .shared,
+        defaults: UserDefaults = .standard
     ) {
         self.firebase = firebase
         self.encryption = encryption
         self.localMessageStore = localMessageStore
+        self.defaults = defaults
     }
 
     deinit {
@@ -66,6 +71,7 @@ final class PairingViewModel {
         }
 
         currentUID = uid
+        consumeSystemNoticeIfNeeded(uid: uid)
         onStateChanged?(.loading, L10n.t("pairing.status.profile_loading"))
         observeRequests(uid: uid)
         firebase.syncIdentityPublicKeyIfNeeded(uid: uid) { result in
@@ -384,6 +390,55 @@ final class PairingViewModel {
     private func emitError(_ error: Error) {
         let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         onError?(message)
+    }
+
+    private func consumeSystemNoticeIfNeeded(uid: String) {
+        guard !hasCheckedSystemNotice else { return }
+        hasCheckedSystemNotice = true
+
+        firebase.fetchSystemNotice(uid: uid) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .failure(let error):
+                self.emitError(error)
+            case .success(let notice):
+                guard let notice else { return }
+                let signature = self.noticeSignature(for: notice)
+                let storageKey = self.systemNoticeSeenStorageKey(for: uid)
+                let lastSeenSignature = self.defaults.string(forKey: storageKey)
+                guard lastSeenSignature != signature else { return }
+
+                let message: String
+                switch notice.type {
+                case .partnerAccountDeleted:
+                    let displayName = notice.sourceName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if displayName.isEmpty {
+                        message = L10n.t("pairing.notice.partner_deleted")
+                    } else {
+                        message = L10n.f("pairing.notice.partner_deleted_with_name", displayName)
+                    }
+                }
+
+                self.onNotice?(message)
+                self.defaults.set(signature, forKey: storageKey)
+
+                self.firebase.clearSystemNotice(uid: uid) { clearResult in
+                    if case .failure(let clearError) = clearResult {
+                        #if DEBUG
+                        print("System notice clear başarısız: \(clearError.localizedDescription)")
+                        #endif
+                    }
+                }
+            }
+        }
+    }
+
+    private func noticeSignature(for notice: SystemNotice) -> String {
+        "\(notice.type.rawValue):\(notice.sourceUID):\(Int(notice.createdAt.timeIntervalSince1970))"
+    }
+
+    private func systemNoticeSeenStorageKey(for uid: String) -> String {
+        "\(systemNoticeSeenKeyPrefix).\(uid)"
     }
 
     private func clearWidgetConversationSnapshot() {

@@ -70,6 +70,17 @@ final class ReactionUsageStore {
         }
     }
 
+    func clearUsage(uid: String) {
+        let trimmedUID = uid.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedUID.isEmpty else { return }
+
+        queue.sync {
+            var store = loadStore()
+            store.removeValue(forKey: trimmedUID)
+            saveStore(store)
+        }
+    }
+
     private func rankedEmojis(from map: [String: UsageEntry]) -> [String] {
         map
             .filter { !$0.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }

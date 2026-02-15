@@ -52,9 +52,9 @@ extension FirebaseManager {
         case .invalidEmail:
             return FirebaseManagerError.generic(L10n.t("firebase.auth.error.invalid_email"))
         case .emailAlreadyInUse:
-            return FirebaseManagerError.generic(L10n.t("firebase.auth.error.email_in_use"))
+            return FirebaseManagerError.generic(L10n.t("auth.error.email_in_use"))
         case .weakPassword:
-            return FirebaseManagerError.generic(L10n.t("firebase.auth.error.weak_password"))
+            return FirebaseManagerError.generic(L10n.t("auth.error.password_policy"))
         case .wrongPassword:
             return FirebaseManagerError.generic(L10n.t("firebase.auth.error.wrong_password"))
         case .userNotFound:
@@ -120,6 +120,8 @@ extension FirebaseManager {
         let isAcquireSessionAction = action == "acquireSessionLock"
         let isReleaseSessionAction = action == "releaseSessionLock"
         let isSessionAction = isAcquireSessionAction || isReleaseSessionAction
+        let isChangePasswordAction = action == "changeMyPassword"
+        let isDeleteMyAccountAction = action == "deleteMyAccount"
 
         if isAcquireSessionAction && combined.contains("session_lock_acquire_failed") {
             return FirebaseManagerError.sessionValidationFailed
@@ -137,6 +139,12 @@ extension FirebaseManager {
                 case .invalidArgument:
                     if combined.contains("session_lock_invalid_installation") {
                         return isReleaseSessionAction ? FirebaseManagerError.logoutRequiresNetwork : FirebaseManagerError.sessionValidationFailed
+                    }
+                    if isChangePasswordAction {
+                        return FirebaseManagerError.generic(L10n.t("profile.management.error.password_policy"))
+                    }
+                    if isDeleteMyAccountAction {
+                        return FirebaseManagerError.generic(L10n.t("profile.management.error.delete_failed"))
                     }
                     if action == "ackMessageStored" {
                         return FirebaseManagerError.generic(L10n.t("chat.local.error.invalid_ack_input"))
@@ -159,7 +167,19 @@ extension FirebaseManager {
                         return FirebaseManagerError.sessionLockedElsewhere
                     }
                     if combined.contains("session_lock_invalid_installation") {
+                        if isDeleteMyAccountAction {
+                            return FirebaseManagerError.generic(L10n.t("profile.management.error.delete_requires_active_device"))
+                        }
                         return isReleaseSessionAction ? FirebaseManagerError.logoutRequiresNetwork : FirebaseManagerError.sessionValidationFailed
+                    }
+                    if isChangePasswordAction {
+                        if combined.contains("requires_recent_login") {
+                            return FirebaseManagerError.generic(L10n.t("profile.management.error.reauth_required"))
+                        }
+                        return FirebaseManagerError.generic(L10n.t("profile.management.error.password_policy"))
+                    }
+                    if isDeleteMyAccountAction {
+                        return FirebaseManagerError.generic(L10n.t("profile.management.error.delete_failed"))
                     }
                     if combined.contains("user_already_paired") {
                         return FirebaseManagerError.generic(L10n.t("pairing.request.error.user_already_paired"))
@@ -199,11 +219,23 @@ extension FirebaseManager {
                     }
                     return FirebaseManagerError.generic(L10n.t("pairing.request.error.generic_invalid"))
                 case .permissionDenied:
+                    if isChangePasswordAction {
+                        return FirebaseManagerError.generic(L10n.t("profile.management.error.password_change_failed"))
+                    }
+                    if isDeleteMyAccountAction {
+                        return FirebaseManagerError.generic(L10n.t("profile.management.error.delete_failed"))
+                    }
                     if isSessionAction {
                         return isReleaseSessionAction ? FirebaseManagerError.logoutRequiresNetwork : FirebaseManagerError.sessionValidationFailed
                     }
                     return FirebaseManagerError.generic(L10n.t("pairing.request.error.permission_denied"))
                 case .notFound:
+                    if isChangePasswordAction {
+                        return FirebaseManagerError.generic(L10n.t("profile.management.error.password_change_failed"))
+                    }
+                    if isDeleteMyAccountAction {
+                        return FirebaseManagerError.generic(L10n.t("profile.management.error.delete_failed"))
+                    }
                     if isSessionAction {
                         return isReleaseSessionAction ? FirebaseManagerError.logoutRequiresNetwork : FirebaseManagerError.sessionValidationFailed
                     }
@@ -218,11 +250,23 @@ extension FirebaseManager {
                     }
                     return FirebaseManagerError.generic(L10n.t("pairing.request.error.function_not_deployed"))
                 case .unavailable, .deadlineExceeded:
+                    if isChangePasswordAction {
+                        return FirebaseManagerError.generic(L10n.t("profile.management.error.password_change_failed"))
+                    }
+                    if isDeleteMyAccountAction {
+                        return FirebaseManagerError.generic(L10n.t("profile.management.error.delete_failed"))
+                    }
                     if isSessionAction {
                         return isReleaseSessionAction ? FirebaseManagerError.logoutRequiresNetwork : FirebaseManagerError.sessionValidationFailed
                     }
                     return FirebaseManagerError.generic(L10n.f("firebase.auth.error.action_failed_format", action, nsError.localizedDescription))
                 default:
+                    if isChangePasswordAction {
+                        return FirebaseManagerError.generic(L10n.t("profile.management.error.password_change_failed"))
+                    }
+                    if isDeleteMyAccountAction {
+                        return FirebaseManagerError.generic(L10n.t("profile.management.error.delete_failed"))
+                    }
                     if isSessionAction {
                         return isReleaseSessionAction ? FirebaseManagerError.logoutRequiresNetwork : FirebaseManagerError.sessionValidationFailed
                     }

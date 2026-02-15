@@ -22,9 +22,16 @@ final class AuthViewController: UIViewController {
     private let lastNameField = UITextField()
     private let emailField = UITextField()
     private let passwordField = UITextField()
+    private let formValidationLabel = UILabel()
     private let submitButton = UIButton(type: .system)
     private let activity = UIActivityIndicatorView(style: .medium)
     private let gradientLayer = CAGradientLayer()
+
+    private var isLoading = false
+    private var isCheckingEmailInUse = false
+    private var isEmailInUse = false
+    private var lastCheckedEmail: String?
+    private var emailCheckWorkItem: DispatchWorkItem?
 
     init(viewModel: AuthViewModel = AuthViewModel()) {
         self.viewModel = viewModel
@@ -33,6 +40,10 @@ final class AuthViewController: UIViewController {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        emailCheckWorkItem?.cancel()
     }
 
     override func viewDidLoad() {
@@ -74,9 +85,18 @@ final class AuthViewController: UIViewController {
         emailField.keyboardType = .emailAddress
         emailField.autocapitalizationType = .none
         emailField.textContentType = .username
+        emailField.addTarget(self, action: #selector(textFieldChanged), for: .editingChanged)
 
         configureField(passwordField, placeholder: L10n.t("auth.field.password"), secure: true)
         passwordField.textContentType = .password
+        passwordField.addTarget(self, action: #selector(textFieldChanged), for: .editingChanged)
+        firstNameField.addTarget(self, action: #selector(textFieldChanged), for: .editingChanged)
+        lastNameField.addTarget(self, action: #selector(textFieldChanged), for: .editingChanged)
+
+        formValidationLabel.font = UIFont(name: "AvenirNext-Medium", size: 12) ?? .systemFont(ofSize: 12, weight: .medium)
+        formValidationLabel.textColor = UIColor(red: 0.92, green: 0.34, blue: 0.41, alpha: 1)
+        formValidationLabel.numberOfLines = 0
+        formValidationLabel.isHidden = true
 
         var configuration = UIButton.Configuration.filled()
         configuration.cornerStyle = .capsule
@@ -96,6 +116,7 @@ final class AuthViewController: UIViewController {
             lastNameField,
             emailField,
             passwordField,
+            formValidationLabel,
             submitButton,
             activity
         ])
@@ -137,7 +158,8 @@ final class AuthViewController: UIViewController {
 
     private func bindViewModel() {
         viewModel.onLoadingChanged = { [weak self] loading in
-            self?.submitButton.isEnabled = !loading
+            self?.isLoading = loading
+            self?.updateSubmitAvailability()
             if loading {
                 self?.activity.startAnimating()
             } else {
@@ -161,16 +183,43 @@ final class AuthViewController: UIViewController {
         firstNameField.isHidden = !isSignUp
         lastNameField.isHidden = !isSignUp
 
+        if !isSignUp {
+            isCheckingEmailInUse = false
+            isEmailInUse = false
+            lastCheckedEmail = nil
+            emailCheckWorkItem?.cancel()
+            emailCheckWorkItem = nil
+        } else {
+            scheduleEmailInUseCheckIfNeeded()
+        }
+
         var configuration = submitButton.configuration
         configuration?.title = isSignUp ? L10n.t("auth.button.sign_up") : L10n.t("auth.button.sign_in")
         submitButton.configuration = configuration
+        updateSubmitAvailability()
     }
 
     @objc private func modeChanged() {
         updateModeUI()
     }
 
+    @objc private func textFieldChanged() {
+        if modeControl.selectedSegmentIndex == 1 {
+            scheduleEmailInUseCheckIfNeeded()
+        }
+        updateSubmitAvailability()
+    }
+
     @objc private func submitTapped() {
+        guard submitButton.isEnabled else {
+            if let message = currentValidationMessage() {
+                let alert = UIAlertController(title: L10n.t("common.error_title"), message: message, preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: L10n.t("common.ok"), style: .default))
+                present(alert, animated: true)
+            }
+            return
+        }
+
         let isSignUp = modeControl.selectedSegmentIndex == 1
         viewModel.submit(
             mode: isSignUp ? .signUp : .signIn,
@@ -197,5 +246,109 @@ final class AuthViewController: UIViewController {
         )
         alert.addAction(UIAlertAction(title: L10n.t("common.ok"), style: .default))
         present(alert, animated: true)
+    }
+
+    private func scheduleEmailInUseCheckIfNeeded() {
+        guard modeControl.selectedSegmentIndex == 1 else { return }
+
+        let email = normalizedEmail()
+        guard isEmailFormatValid(email) else {
+            isCheckingEmailInUse = false
+            isEmailInUse = false
+            lastCheckedEmail = nil
+            emailCheckWorkItem?.cancel()
+            emailCheckWorkItem = nil
+            return
+        }
+
+        if lastCheckedEmail == email {
+            return
+        }
+
+        emailCheckWorkItem?.cancel()
+        isCheckingEmailInUse = true
+        isEmailInUse = false
+        updateSubmitAvailability()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.viewModel.checkEmailInUse(email) { [weak self] result in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    guard self.modeControl.selectedSegmentIndex == 1 else { return }
+                    guard self.normalizedEmail() == email else { return }
+
+                    self.isCheckingEmailInUse = false
+                    self.lastCheckedEmail = email
+
+                    switch result {
+                    case .success(let inUse):
+                        self.isEmailInUse = inUse
+                    case .failure:
+                        self.isEmailInUse = false
+                    }
+
+                    self.updateSubmitAvailability()
+                }
+            }
+        }
+
+        emailCheckWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: workItem)
+    }
+
+    private func updateSubmitAvailability() {
+        let message = currentValidationMessage()
+        let canSubmit = message == nil && !isLoading
+
+        submitButton.isEnabled = canSubmit
+        submitButton.alpha = canSubmit ? 1 : 0.7
+
+        formValidationLabel.text = message
+        formValidationLabel.isHidden = message == nil
+    }
+
+    private func currentValidationMessage() -> String? {
+        let isSignUp = modeControl.selectedSegmentIndex == 1
+        let cleanEmail = normalizedEmail()
+        let cleanPassword = passwordField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        if isSignUp {
+            let cleanFirstName = firstNameField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let cleanLastName = lastNameField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if cleanFirstName.isEmpty || cleanLastName.isEmpty {
+                return L10n.t("auth.error.signup_name_required")
+            }
+        }
+
+        if cleanEmail.isEmpty || cleanPassword.isEmpty {
+            return L10n.t("auth.error.empty_credentials")
+        }
+
+        guard isEmailFormatValid(cleanEmail) else {
+            return L10n.t("auth.error.invalid_email")
+        }
+
+        if isSignUp {
+            guard viewModel.isStrongPassword(cleanPassword) else {
+                return L10n.t("auth.error.password_policy")
+            }
+            if isCheckingEmailInUse {
+                return L10n.t("auth.validation.email_checking")
+            }
+            if isEmailInUse {
+                return L10n.t("auth.error.email_in_use")
+            }
+        }
+
+        return nil
+    }
+
+    private func normalizedEmail() -> String {
+        (emailField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func isEmailFormatValid(_ email: String) -> Bool {
+        email.contains("@") && email.contains(".")
     }
 }

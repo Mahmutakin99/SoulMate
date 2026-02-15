@@ -9,19 +9,26 @@ import UIKit
 
 enum HapticEngine {
     private static let impact = UIImpactFeedbackGenerator(style: .medium)
-    private static let notification = UINotificationFeedbackGenerator()
 
-    static func playHeartbeatPattern() {
+    static func playHeartbeatPattern(
+        primaryIntensity: CGFloat = 0.7,
+        secondaryIntensity: CGFloat = 0.52,
+        interBeatDelay: TimeInterval = AppConfiguration.Heartbeat.lubDubDelaySeconds
+    ) {
+        let first = normalizedIntensity(primaryIntensity)
+        let second = normalizedIntensity(secondaryIntensity)
+        let delay = max(0.08, interBeatDelay)
 
+        // UIFeedbackGenerator automatically respects iOS system haptic settings.
         impact.prepare()
-        notification.prepare()
+        impact.impactOccurred(intensity: first)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            impact.prepare()
+            impact.impactOccurred(intensity: second)
+        }
+    }
 
-        impact.impactOccurred(intensity: 1.0)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
-            impact.impactOccurred(intensity: 0.75)
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
-            notification.notificationOccurred(.success)
-        }
+    private static func normalizedIntensity(_ value: CGFloat) -> CGFloat {
+        min(max(value, 0.01), 1.0)
     }
 }

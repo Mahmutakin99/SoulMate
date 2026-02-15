@@ -166,10 +166,10 @@ extension ChatViewController {
         detailsDimView.backgroundColor = theme.drawerDim
         detailsDrawerView.backgroundColor = theme.drawerBackground
         detailsTitleLabel.textColor = theme.drawerTitle
-        [secureInfoRow, pairInfoRow, distanceInfoRow, splashPreferenceRow].forEach { row in
+        [secureInfoRow, pairInfoRow, distanceInfoRow, splashPreferenceRow, heartbeatTempoRow, heartbeatIntensityRow].forEach { row in
             row.backgroundColor = theme.drawerRowBackground
         }
-        [secureStatusTitleLabel, pairStatusTitleLabel, distanceTitleLabel, partnerMoodTitleLabel, splashPreferenceTitleLabel].forEach { label in
+        [secureStatusTitleLabel, pairStatusTitleLabel, distanceTitleLabel, partnerMoodTitleLabel, splashPreferenceTitleLabel, heartbeatTempoTitleLabel, heartbeatIntensityTitleLabel].forEach { label in
             label.textColor = theme.drawerRowTitle
         }
         [secureStatusValueLabel, pairStatusValueLabel, distanceValueLabel, partnerMoodValueLabel].forEach { label in
@@ -177,6 +177,12 @@ extension ChatViewController {
         }
         partnerMoodInfoRow.backgroundColor = theme.drawerRowBackground
         splashPreferenceSwitch.onTintColor = theme.accent
+        [heartbeatTempoControl, heartbeatIntensityControl].forEach { control in
+            control.selectedSegmentTintColor = theme.accent.withAlphaComponent(0.62)
+            control.backgroundColor = theme.fieldBackground
+            control.setTitleTextAttributes([.foregroundColor: theme.textSecondary], for: .normal)
+            control.setTitleTextAttributes([.foregroundColor: UIColor.white], for: .selected)
+        }
 
         if let selectedMoodIndex {
             setSelectedMood(at: selectedMoodIndex)

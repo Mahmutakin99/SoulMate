@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CoreGraphics
 
 enum AppConfiguration {
     static let keychainService = "com.MahmutAKIN.SoulMate.secure"
@@ -19,6 +20,7 @@ enum AppConfiguration {
         static let chats = "chats"
         static let events = "events"
         static let relationshipRequests = "relationshipRequests"
+        static let systemNotices = "systemNotices"
     }
 
     enum SharedStoreKey {
@@ -29,6 +31,8 @@ enum AppConfiguration {
 
     enum UserPreferenceKey {
         static let showsSplashOnLaunch = "userpref.showsSplashOnLaunch"
+        static let heartbeatTempoPreset = "userpref.heartbeatTempoPreset"
+        static let heartbeatIntensityPreset = "userpref.heartbeatIntensityPreset"
     }
 
     enum NotificationPayloadKey {
@@ -69,5 +73,13 @@ enum AppConfiguration {
     enum Session {
         static let installationIDAccount = "session.installation_id"
         static let lockCallTimeoutSeconds: TimeInterval = 12
+    }
+
+    enum Heartbeat {
+        static let longPressStartDelaySeconds: TimeInterval = 0.26
+        static let longPressAllowableMovement: CGFloat = 36
+        static let maxHoldDurationSeconds: TimeInterval = 12
+        static let minSendIntervalSeconds: TimeInterval = 1
+        static let lubDubDelaySeconds: TimeInterval = 0.16
     }
 }

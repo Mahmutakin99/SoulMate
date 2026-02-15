@@ -16,6 +16,7 @@ const DATABASE_TRIGGER_REGION = "us-central1";
 const REQUEST_EXPIRY_SECONDS = 24 * 60 * 60;
 const CLOUD_MESSAGE_TTL_SECONDS = 7 * 24 * 60 * 60;
 const REQUEST_DUPLICATE_SCAN_LIMIT = 200;
+const SIMPLE_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const REQUEST_TYPE = {
   PAIR: "pair",
@@ -28,6 +29,8 @@ const REQUEST_STATUS = {
   REJECTED: "rejected",
   EXPIRED: "expired"
 };
+
+const PASSWORD_POLICY_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/;
 
 function nowSeconds() {
   return Math.floor(Date.now() / 1000);
@@ -92,6 +95,117 @@ function readAppVersion(data) {
 function readDeviceName(data) {
   const value = normalizedString(data?.deviceName);
   return value ? value.slice(0, 80) : "unknown-device";
+}
+
+function isPasswordPolicyValid(password) {
+  return password.length >= 8 &&
+    password.length <= 64 &&
+    PASSWORD_POLICY_REGEX.test(password);
+}
+
+function displayNameFromProfile(profile, fallback) {
+  const first = readName(profile, "firstName");
+  const last = readName(profile, "lastName");
+  const full = `${first} ${last}`.trim();
+  return full || fallback;
+}
+
+async function collectRelationshipRequestRemovalUpdates(uid) {
+  const updates = {};
+  const requestsRef = admin.database().ref("/relationshipRequests");
+
+  const fromSnap = await requestsRef
+    .orderByChild("fromUID")
+    .equalTo(uid)
+    .get();
+  if (fromSnap.exists()) {
+    fromSnap.forEach((child) => {
+      updates[`/relationshipRequests/${child.key}`] = null;
+    });
+  }
+
+  const toSnap = await requestsRef
+    .orderByChild("toUID")
+    .equalTo(uid)
+    .get();
+  if (toSnap.exists()) {
+    toSnap.forEach((child) => {
+      updates[`/relationshipRequests/${child.key}`] = null;
+    });
+  }
+
+  return updates;
+}
+
+async function pairCodeRemovalUpdate(uid, profile) {
+  const code = readPairCode(profile);
+  if (!/^[0-9]{6}$/.test(code)) {
+    return {};
+  }
+
+  const codeRef = admin.database().ref(`/pairCodes/${code}`);
+  const codeSnap = await codeRef.get();
+  if (normalizedString(codeSnap.val()) !== uid) {
+    return {};
+  }
+
+  return {
+    [`/pairCodes/${code}`]: null
+  };
+}
+
+async function sendPartnerAccountDeletedPush(partnerUID, sourceName) {
+  if (!partnerUID) {
+    return;
+  }
+
+  const tokenSnap = await admin.database().ref(`/users/${partnerUID}/fcmToken`).get();
+  const token = normalizedString(tokenSnap.val());
+  if (!token) {
+    return;
+  }
+
+  const body = sourceName
+    ? `${sourceName} hesabını sildi.`
+    : "Partnerin hesabını sildi.";
+  const payload = {
+    token,
+    notification: {
+      title: "SoulMate",
+      body
+    },
+    data: {
+      type: "partner_account_deleted"
+    },
+    apns: {
+      headers: {
+        "apns-priority": "10"
+      },
+      payload: {
+        aps: {
+          alert: {
+            title: "SoulMate",
+            body
+          },
+          sound: "default"
+        }
+      }
+    }
+  };
+
+  try {
+    await admin.messaging().send(payload);
+  } catch (error) {
+    logger.error("Partner delete push failed.", {
+      partnerUID,
+      errorCode: error?.code,
+      errorMessage: error?.message || String(error)
+    });
+
+    if (INVALID_TOKEN_CODES.has(error?.code)) {
+      await admin.database().ref(`/users/${partnerUID}/fcmToken`).remove();
+    }
+  }
 }
 
 async function loadUserProfile(uid) {
@@ -296,6 +410,31 @@ exports.markMessageRead = onCall(
     });
 
     return { success: true, readAt: now };
+  }
+);
+
+exports.checkEmailInUse = onCall(
+  { region: CALLABLE_REGION },
+  async (request) => {
+    const email = normalizedString(request.data?.email).toLowerCase();
+    if (!email || !SIMPLE_EMAIL_REGEX.test(email)) {
+      throw new HttpsError("invalid-argument", "invalid_email");
+    }
+
+    try {
+      await admin.auth().getUserByEmail(email);
+      return { success: true, inUse: true };
+    } catch (error) {
+      if (error?.code === "auth/user-not-found") {
+        return { success: true, inUse: false };
+      }
+
+      logger.error("checkEmailInUse failed.", {
+        errorCode: error?.code,
+        errorMessage: error?.message || String(error)
+      });
+      throw new HttpsError("internal", "email_check_failed");
+    }
   }
 );
 
@@ -561,6 +700,146 @@ exports.releaseSessionLock = onCall(
     return {
       success: true,
       released: true
+    };
+  }
+);
+
+exports.changeMyPassword = onCall(
+  { region: CALLABLE_REGION },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "auth_required");
+    }
+
+    const newPassword = normalizedString(request.data?.newPassword);
+    if (!isPasswordPolicyValid(newPassword)) {
+      throw new HttpsError("invalid-argument", "invalid_password_policy");
+    }
+
+    const authTime = Number(request.auth?.token?.auth_time || 0);
+    const now = nowSeconds();
+    if (!Number.isFinite(authTime) || authTime <= 0 || now - authTime > 300) {
+      throw new HttpsError("failed-precondition", "requires_recent_login");
+    }
+
+    try {
+      await admin.auth().updateUser(uid, { password: newPassword });
+    } catch (error) {
+      logger.error("changeMyPassword failed.", {
+        uid,
+        errorCode: error?.code,
+        errorMessage: error?.message || String(error)
+      });
+
+      if (error?.code === "auth/invalid-password") {
+        throw new HttpsError("invalid-argument", "invalid_password_policy");
+      }
+      throw new HttpsError("internal", "password_change_failed");
+    }
+
+    return { success: true };
+  }
+);
+
+exports.deleteMyAccount = onCall(
+  { region: CALLABLE_REGION },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError("unauthenticated", "auth_required");
+    }
+
+    const installationID = readInstallationID(request.data);
+    if (!installationID) {
+      throw new HttpsError("invalid-argument", "session_lock_invalid_installation");
+    }
+
+    const lockRef = admin.database().ref(`/sessionLocks/${uid}`);
+    const lockSnap = await lockRef.get();
+    if (lockSnap.exists()) {
+      const lock = lockSnap.val() || {};
+      const owner = normalizedString(lock.installationID);
+      if (owner && owner !== installationID) {
+        throw new HttpsError("failed-precondition", "session_lock_invalid_installation");
+      }
+    }
+
+    const profile = await loadUserProfile(uid);
+    const partnerUID = readPartnerID(profile);
+    let partnerProfile = {};
+
+    if (partnerUID) {
+      partnerProfile = await loadUserProfile(partnerUID);
+    }
+
+    const sourceName = displayNameFromProfile(profile, "Partnerin");
+    const now = nowSeconds();
+    const updates = {
+      [`/users/${uid}`]: null,
+      [`/sessionLocks/${uid}`]: null
+    };
+
+    if (partnerUID && partnerUID !== uid) {
+      const chatID = requestChatID(uid, partnerUID);
+      updates[`/chats/${chatID}`] = null;
+      updates[`/events/${chatID}`] = null;
+
+      if (readPartnerID(partnerProfile) === uid) {
+        updates[`/users/${partnerUID}/partnerID`] = null;
+      }
+
+      updates[`/systemNotices/${partnerUID}`] = {
+        type: "partner_account_deleted",
+        sourceUID: uid,
+        sourceName,
+        createdAt: now
+      };
+    }
+
+    const requestCleanupUpdates = await collectRelationshipRequestRemovalUpdates(uid);
+    Object.assign(updates, requestCleanupUpdates);
+
+    const pairCodeUpdates = await pairCodeRemovalUpdate(uid, profile);
+    Object.assign(updates, pairCodeUpdates);
+
+    try {
+      await admin.database().ref().update(updates);
+    } catch (error) {
+      logger.error("deleteMyAccount data cleanup failed.", {
+        uid,
+        partnerUID,
+        errorMessage: error?.message || String(error)
+      });
+      throw new HttpsError("internal", "delete_account_failed");
+    }
+
+    if (partnerUID && partnerUID !== uid) {
+      try {
+        await sendPartnerAccountDeletedPush(partnerUID, sourceName);
+      } catch (error) {
+        logger.error("Partner notification push pipeline failed.", {
+          uid,
+          partnerUID,
+          errorMessage: error?.message || String(error)
+        });
+      }
+    }
+
+    try {
+      await admin.auth().deleteUser(uid);
+    } catch (error) {
+      logger.error("deleteMyAccount auth deletion failed.", {
+        uid,
+        errorCode: error?.code,
+        errorMessage: error?.message || String(error)
+      });
+      throw new HttpsError("internal", "delete_account_failed");
+    }
+
+    return {
+      success: true,
+      deletedAt: now
     };
   }
 );

@@ -87,6 +87,11 @@ final class EncryptionService {
         try? keychain.delete(account: accountKeyForSharedKey(partnerUID: partnerUID))
     }
 
+    func clearAllKeyMaterial() {
+        try? keychain.delete(account: identityPrivateKeyAccount)
+        try? keychain.deleteAll(accountPrefix: "crypto.shared.")
+    }
+
     private func loadSharedKey(partnerUID: String) throws -> SymmetricKey {
         guard let data = keychain.readIfPresent(account: accountKeyForSharedKey(partnerUID: partnerUID)) else {
             throw EncryptionError.missingSharedKey

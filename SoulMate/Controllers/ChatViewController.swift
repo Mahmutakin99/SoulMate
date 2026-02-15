@@ -10,9 +10,98 @@ import UIKit
 import SDWebImage
 #endif
 
+enum HeartbeatTempoPreference: Int, CaseIterable {
+    case calm = 0
+    case medium = 1
+    case high = 2
+
+    var cycleInterval: TimeInterval {
+        switch self {
+        case .calm:
+            return 60.0 / 66.0
+        case .medium:
+            return 60.0 / 84.0
+        case .high:
+            return 60.0 / 108.0
+        }
+    }
+
+    var title: String {
+        if Locale.preferredLanguages.first?.lowercased().hasPrefix("tr") == true {
+            switch self {
+            case .calm:
+                return "Sakin"
+            case .medium:
+                return "Orta"
+            case .high:
+                return "Yüksek"
+            }
+        }
+
+        switch self {
+        case .calm:
+            return "Calm"
+        case .medium:
+            return "Medium"
+        case .high:
+            return "High"
+        }
+    }
+}
+
+enum HeartbeatIntensityPreference: Int, CaseIterable {
+    case low = 0
+    case medium = 1
+    case high = 2
+
+    var primaryImpact: CGFloat {
+        switch self {
+        case .low:
+            return 0.45
+        case .medium:
+            return 0.7
+        case .high:
+            return 1.0
+        }
+    }
+
+    var secondaryImpact: CGFloat {
+        switch self {
+        case .low:
+            return 0.3
+        case .medium:
+            return 0.52
+        case .high:
+            return 0.8
+        }
+    }
+
+    var title: String {
+        if Locale.preferredLanguages.first?.lowercased().hasPrefix("tr") == true {
+            switch self {
+            case .low:
+                return "Düşük"
+            case .medium:
+                return "Orta"
+            case .high:
+                return "Yüksek"
+            }
+        }
+
+        switch self {
+        case .low:
+            return "Low"
+        case .medium:
+            return "Medium"
+        case .high:
+            return "High"
+        }
+    }
+}
+
 final class ChatViewController: UIViewController {
     var onRequestPairingManagement: (() -> Void)?
-    var onRequestSignOut: (() -> Void)?
+    var onRequestProfileManagement: (() -> Void)?
     var onRequirePairing: (() -> Void)?
     static let quickEmojiVisibilityPreferenceKey = "chat.quick_emoji_visible"
     static let revealedSecretMessagesPreferenceKey = "chat.revealed_secret_message_ids"
@@ -66,6 +155,8 @@ final class ChatViewController: UIViewController {
     let distanceInfoRow = UIView()
     let partnerMoodInfoRow = UIView()
     let splashPreferenceRow = UIView()
+    let heartbeatTempoRow = UIView()
+    let heartbeatIntensityRow = UIView()
     let secureStatusTitleLabel = UILabel()
     let secureStatusValueLabel = UILabel()
     let pairStatusTitleLabel = UILabel()
@@ -76,6 +167,10 @@ final class ChatViewController: UIViewController {
     let partnerMoodValueLabel = UILabel()
     let splashPreferenceTitleLabel = UILabel()
     let splashPreferenceSwitch = UISwitch()
+    let heartbeatTempoTitleLabel = UILabel()
+    let heartbeatIntensityTitleLabel = UILabel()
+    lazy var heartbeatTempoControl = UISegmentedControl(items: HeartbeatTempoPreference.allCases.map(\.title))
+    lazy var heartbeatIntensityControl = UISegmentedControl(items: HeartbeatIntensityPreference.allCases.map(\.title))
     var detailsDrawerTrailingConstraint: NSLayoutConstraint!
     let detailsDrawerWidth: CGFloat = 274
     var isDetailsDrawerOpen = false
@@ -106,6 +201,19 @@ final class ChatViewController: UIViewController {
     var reactionPickerOverlay: UIControl?
     var reactionQuickPickerView: ReactionQuickPickerView?
     var activeReactionMessageID: String?
+    var heartbeatTempoPreference: HeartbeatTempoPreference = {
+        let rawValue = UserDefaults.standard.object(forKey: AppConfiguration.UserPreferenceKey.heartbeatTempoPreset) as? Int
+        return HeartbeatTempoPreference(rawValue: rawValue ?? HeartbeatTempoPreference.calm.rawValue) ?? .calm
+    }()
+    var heartbeatIntensityPreference: HeartbeatIntensityPreference = {
+        let rawValue = UserDefaults.standard.object(forKey: AppConfiguration.UserPreferenceKey.heartbeatIntensityPreset) as? Int
+        return HeartbeatIntensityPreference(rawValue: rawValue ?? HeartbeatIntensityPreference.medium.rawValue) ?? .medium
+    }()
+    var heartbeatLoopTimer: Timer?
+    var heartbeatHoldTimeoutWorkItem: DispatchWorkItem?
+    var lastHeartbeatSendAt: Date?
+    var isHeartbeatHoldActive = false
+    var suppressHeartTapUntilNextRunLoop = false
 
     var theme: ChatTheme!
     lazy var dismissKeyboardTapGesture = UITapGestureRecognizer(target: self, action: #selector(handleBackgroundTap))
@@ -168,6 +276,7 @@ final class ChatViewController: UIViewController {
         isVisible = false
         gifPlaybackUpdateWorkItem?.cancel()
         updateVisibleGIFPlayback(isEnabled: false)
+        stopHeartbeatHoldSession()
         dismissReactionQuickPicker()
         setDetailsDrawerVisibility(false, animated: false)
     }

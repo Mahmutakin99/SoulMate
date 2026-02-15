@@ -153,6 +153,10 @@ extension ChatViewController {
         updateDetailsSidebarValues(for: state)
         updateEmptyStateVisibility()
 
+        if !ready {
+            stopHeartbeatHoldSession()
+        }
+
         if ready {
             hasTriggeredPairingRedirect = false
         } else if previousState == .ready && state == .unpaired && !hasTriggeredPairingRedirect {

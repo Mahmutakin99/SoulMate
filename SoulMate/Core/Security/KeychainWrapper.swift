@@ -133,6 +133,22 @@ final class KeychainWrapper {
         }
     }
 
+    func deleteAll(accountPrefix: String) throws {
+        let trimmedPrefix = accountPrefix.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPrefix.isEmpty else { return }
+
+        var accounts = try listAccounts(includeAccessGroup: canUseAccessGroup)
+        if canUseAccessGroup {
+            let fallbackAccounts = try listAccounts(includeAccessGroup: false)
+            accounts.append(contentsOf: fallbackAccounts)
+        }
+
+        let uniqueAccounts = Set(accounts.filter { $0.hasPrefix(trimmedPrefix) })
+        for account in uniqueAccounts {
+            try delete(account: account)
+        }
+    }
+
     func save(string: String, for account: String) throws {
         guard let data = string.data(using: .utf8) else {
             throw KeychainError.unexpectedData
@@ -164,5 +180,36 @@ final class KeychainWrapper {
         }
 
         return query
+    }
+
+    private func listAccounts(includeAccessGroup: Bool) throws -> [String] {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+            kSecReturnAttributes as String: true
+        ]
+
+        if includeAccessGroup, let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
+
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound {
+            return []
+        }
+        if status == errSecMissingEntitlement, includeAccessGroup {
+            return []
+        }
+        guard status == errSecSuccess else {
+            throw KeychainError.unhandledStatus(status)
+        }
+
+        guard let items = result as? [[String: Any]] else {
+            return []
+        }
+
+        return items.compactMap { $0[kSecAttrAccount as String] as? String }
     }
 }

@@ -92,6 +92,22 @@ final class AppFlowCoordinator {
         navigationController.pushViewController(controller, animated: true)
     }
 
+    func showProfileManagement() {
+        guard let navigationController = rootNavigationController else {
+            routeOnLaunch(animated: true)
+            return
+        }
+
+        let controller = ProfileManagementViewController()
+        controller.onSignedOut = { [weak self] in
+            self?.showAuth(animated: true)
+        }
+        controller.onAccountDeleted = { [weak self] in
+            self?.showAuth(animated: true)
+        }
+        navigationController.pushViewController(controller, animated: true)
+    }
+
     func signOut() {
         firebase.signOutReleasingSession { [weak self] result in
             DispatchQueue.main.async {
@@ -190,8 +206,8 @@ final class AppFlowCoordinator {
         controller.onRequestPairingManagement = { [weak self] in
             self?.showPairingManagement()
         }
-        controller.onRequestSignOut = { [weak self] in
-            self?.signOut()
+        controller.onRequestProfileManagement = { [weak self] in
+            self?.showProfileManagement()
         }
         controller.onRequirePairing = { [weak self] in
             self?.routeOnLaunch(animated: true)
