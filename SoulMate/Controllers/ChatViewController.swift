@@ -105,7 +105,7 @@ final class ChatViewController: UIViewController {
     var onRequirePairing: (() -> Void)?
     static let quickEmojiVisibilityPreferenceKey = "chat.quick_emoji_visible"
     static let revealedSecretMessagesPreferenceKey = "chat.revealed_secret_message_ids"
-    static let inputBottomInsetKeyboardVisible: CGFloat = -6 // input alanı yükseklik
+    static let inputBottomInsetKeyboardVisible: CGFloat = -6 // input alanı yüksekliği
     static let inputBottomInsetKeyboardHidden: CGFloat = 20
 
     let viewModel: ChatViewModel
