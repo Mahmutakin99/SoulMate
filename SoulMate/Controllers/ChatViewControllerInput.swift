@@ -185,6 +185,9 @@ extension ChatViewController {
 
         let updates = {
             self.tableMinHeightConstraint.constant = active ? 140 : 220
+            self.inputBottomConstraint.constant = active
+                ? Self.inputBottomInsetKeyboardVisible
+                : Self.inputBottomInsetKeyboardHidden
             self.view.layoutIfNeeded()
         }
 

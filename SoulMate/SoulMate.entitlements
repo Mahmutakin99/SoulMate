@@ -2,10 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!--
+	Push Notifications geçici olarak kapalı.
+	App Store / üretim imzalama öncesi aşağıdaki satırları tekrar aç:
+	<key>aps-environment</key>
+	<string>development</string>
+	-->
 	<key>com.apple.security.application-groups</key>
-	<array>
-		<string>group.com.MahmutAKIN.SoulMate</string>
-	</array>
+	<array/>
 	<key>keychain-access-groups</key>
 	<array>
 		<string>BQH8W6X63R.com.MahmutAKIN.SoulMate.shared</string>

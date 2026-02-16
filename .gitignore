@@ -10,3 +10,12 @@ build/
 
 .swiftpm/
 SourcePackages/
+
+# Local secrets / credentials (do not commit)
+.firebaserc
+firebase-debug.log
+firebase/functions/.runtimeconfig.json
+firebase/functions/.env
+firebase/functions/.env.*
+!firebase/functions/.env.example
+SoulMate/Core/Files/GoogleService-Info.plist

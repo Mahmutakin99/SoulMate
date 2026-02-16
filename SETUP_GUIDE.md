@@ -57,7 +57,8 @@ SoulMate, backend olarak tamamen Firebase kullanır.
     *   **Storage**: (Opsiyonel) Profil fotoğrafları için gerekirse.
 3.  **iOS Uygulamasını Ekleyin**:
     *   Paket adı: `com.MahmutAKIN.SoulMate` (kendi bundle ID'nizi kullanın).
-    *   İndirdiğiniz `GoogleService-Info.plist` dosyasını `SoulMate/SoulMate/` klasörüne taşıyın ve Xcode projesine ekleyin.
+    *   İndirdiğiniz `GoogleService-Info.plist` dosyasını `SoulMate/Core/Files/` klasörüne koyun (repo içinde commit etmeyin; dosya `.gitignore` ile gizlidir).
+    *   İsterseniz `SoulMate/Core/Files/GoogleService-Info.plist.example` dosyasını kopyalayıp `GoogleService-Info.plist` adıyla doldurabilirsiniz.
 4.  **API Key Yapılandırması**:
     *   `AppDelegate.swift` içinde Giphy API key'inizi güncelleyin:
         ```swift

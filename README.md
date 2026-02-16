@@ -28,6 +28,16 @@ Lütfen kurulum adımları için aşağıdaki dokümanı inceleyin:
 
 👉 **[SoulMate Kurulum ve Yapılandırma Rehberi (SETUP_GUIDE.md)](SETUP_GUIDE.md)**
 
+## Public Repo Notu (Önemli)
+
+Bu repo public paylaşım için aşağıdaki dosyaları bilerek commit etmez:
+
+*   `.firebaserc`
+*   `SoulMate/Core/Files/GoogleService-Info.plist`
+*   `firebase/functions/.env*`
+
+Kurulumdan sonra `SoulMate/Core/Files/GoogleService-Info.plist.example` dosyasını kendi Firebase değerlerinle doldurup `GoogleService-Info.plist` adıyla oluşturmalısın.
+
 ## Proje Yapısı
 
 ```text

@@ -238,6 +238,12 @@ extension ChatViewController {
         emojiContainerHeightConstraint = emojiContainer.heightAnchor.constraint(equalToConstant: 52)
         inputTopToEmojiConstraint = inputContainer.topAnchor.constraint(equalTo: emojiContainer.bottomAnchor, constant: 8)
         inputTopToTableConstraint = inputContainer.topAnchor.constraint(equalTo: tableContainer.bottomAnchor, constant: 8)
+        inputBottomConstraint = inputContainer.bottomAnchor.constraint(
+            equalTo: view.keyboardLayoutGuide.topAnchor,
+            constant: isKeyboardModeActive
+                ? Self.inputBottomInsetKeyboardVisible
+                : Self.inputBottomInsetKeyboardHidden
+        )
 
         NSLayoutConstraint.activate([
             tableContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
@@ -251,7 +257,7 @@ extension ChatViewController {
 
             inputContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             inputContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            inputContainer.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: 20) // input alanı
+            inputBottomConstraint
         ])
 
         inputTopToEmojiConstraint.isActive = isQuickEmojiVisible
