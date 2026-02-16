@@ -26,6 +26,12 @@ final class AuthViewController: UIViewController {
     private let submitButton = UIButton(type: .system)
     private let activity = UIActivityIndicatorView(style: .medium)
     private let gradientLayer = CAGradientLayer()
+    private lazy var dismissKeyboardTapGesture: UITapGestureRecognizer = {
+        let gesture = UITapGestureRecognizer(target: self, action: #selector(handleBackgroundTap))
+        gesture.cancelsTouchesInView = false
+        gesture.delegate = self
+        return gesture
+    }()
 
     private var isLoading = false
     private var isCheckingEmailInUse = false
@@ -51,6 +57,7 @@ final class AuthViewController: UIViewController {
         AppVisualTheme.applyBackground(to: view, gradientLayer: gradientLayer)
         title = L10n.t("auth.nav_title")
         setupUI()
+        configureInteractions()
         bindViewModel()
         updateModeUI()
     }
@@ -156,6 +163,10 @@ final class AuthViewController: UIViewController {
         field.leftViewMode = .always
     }
 
+    private func configureInteractions() {
+        view.addGestureRecognizer(dismissKeyboardTapGesture)
+    }
+
     private func bindViewModel() {
         viewModel.onLoadingChanged = { [weak self] loading in
             self?.isLoading = loading
@@ -208,6 +219,10 @@ final class AuthViewController: UIViewController {
             scheduleEmailInUseCheckIfNeeded()
         }
         updateSubmitAvailability()
+    }
+
+    @objc private func handleBackgroundTap() {
+        view.endEditing(true)
     }
 
     @objc private func submitTapped() {
@@ -350,5 +365,17 @@ final class AuthViewController: UIViewController {
 
     private func isEmailFormatValid(_ email: String) -> Bool {
         email.contains("@") && email.contains(".")
+    }
+}
+
+extension AuthViewController: UIGestureRecognizerDelegate {
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer === dismissKeyboardTapGesture else { return true }
+
+        if touch.view is UIControl || touch.view is UITextField || touch.view is UITextView {
+            return false
+        }
+
+        return true
     }
 }

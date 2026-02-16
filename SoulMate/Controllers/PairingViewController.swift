@@ -17,6 +17,14 @@ final class PairingViewController: UIViewController {
 
     private let titleLabel = UILabel()
     private let statusLabel = UILabel()
+    private let partnerInfoCard = UIView()
+    private let partnerInfoTitleLabel = UILabel()
+    private let partnerNameCaptionLabel = UILabel()
+    private let partnerNameValueLabel = UILabel()
+    private let partnerCodeCaptionLabel = UILabel()
+    private let partnerCodeValueLabel = UILabel()
+    private let partnerStateCaptionLabel = UILabel()
+    private let partnerStateValueLabel = UILabel()
     private let pairCodeCard = UILabel()
     private let partnerCodeField = UITextField()
     private let pairButton = UIButton(type: .system)
@@ -83,6 +91,8 @@ final class PairingViewController: UIViewController {
         statusLabel.font = UIFont(name: "AvenirNext-Medium", size: 15) ?? .systemFont(ofSize: 15, weight: .medium)
         statusLabel.textColor = AppVisualTheme.textSecondary
         statusLabel.text = L10n.t("pairing.status.initial_loading")
+
+        configurePartnerInfoCard()
 
         pairCodeCard.textAlignment = .center
         pairCodeCard.font = UIFont(name: "AvenirNext-Bold", size: 28) ?? .systemFont(ofSize: 28, weight: .bold)
@@ -154,6 +164,7 @@ final class PairingViewController: UIViewController {
         let headerStack = UIStackView(arrangedSubviews: [
             titleLabel,
             statusLabel,
+            partnerInfoCard,
             pairCodeCard,
             partnerCodeField,
             pairButton,
@@ -187,6 +198,96 @@ final class PairingViewController: UIViewController {
         ])
     }
 
+    private func configurePartnerInfoCard() {
+        partnerInfoCard.backgroundColor = AppVisualTheme.softCardBackground
+        partnerInfoCard.layer.cornerRadius = 14
+        partnerInfoCard.layer.cornerCurve = .continuous
+        partnerInfoCard.layer.borderWidth = 1
+        partnerInfoCard.layer.borderColor = AppVisualTheme.fieldBorder.cgColor
+        partnerInfoCard.isHidden = true
+
+        partnerInfoTitleLabel.text = isTurkishLanguage ? "Eşleşilen Kişi" : "Paired Partner"
+        partnerInfoTitleLabel.font = UIFont(name: "AvenirNext-DemiBold", size: 15) ?? .systemFont(ofSize: 15, weight: .semibold)
+        partnerInfoTitleLabel.textColor = AppVisualTheme.textPrimary
+
+        configurePartnerCaptionLabel(partnerNameCaptionLabel, text: isTurkishLanguage ? "Ad" : "Name")
+        configurePartnerCaptionLabel(partnerCodeCaptionLabel, text: isTurkishLanguage ? "Kod" : "Code")
+        configurePartnerCaptionLabel(partnerStateCaptionLabel, text: isTurkishLanguage ? "Durum" : "Status")
+
+        configurePartnerValueLabel(partnerNameValueLabel)
+        configurePartnerValueLabel(partnerCodeValueLabel)
+        configurePartnerValueLabel(partnerStateValueLabel)
+
+        partnerCodeValueLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 14, weight: .medium)
+
+        partnerNameValueLabel.text = isTurkishLanguage ? "Bilinmiyor" : "Unknown"
+        partnerCodeValueLabel.text = "------"
+        partnerStateValueLabel.text = isTurkishLanguage ? "Bekliyor" : "Pending"
+
+        let contentStack = UIStackView(arrangedSubviews: [
+            partnerInfoTitleLabel,
+            makePartnerInfoRow(caption: partnerNameCaptionLabel, value: partnerNameValueLabel),
+            makePartnerInfoRow(caption: partnerCodeCaptionLabel, value: partnerCodeValueLabel),
+            makePartnerInfoRow(caption: partnerStateCaptionLabel, value: partnerStateValueLabel)
+        ])
+        contentStack.axis = .vertical
+        contentStack.spacing = 8
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+
+        partnerInfoCard.addSubview(contentStack)
+        NSLayoutConstraint.activate([
+            contentStack.topAnchor.constraint(equalTo: partnerInfoCard.topAnchor, constant: 12),
+            contentStack.leadingAnchor.constraint(equalTo: partnerInfoCard.leadingAnchor, constant: 12),
+            contentStack.trailingAnchor.constraint(equalTo: partnerInfoCard.trailingAnchor, constant: -12),
+            contentStack.bottomAnchor.constraint(equalTo: partnerInfoCard.bottomAnchor, constant: -12)
+        ])
+    }
+
+    private func configurePartnerCaptionLabel(_ label: UILabel, text: String) {
+        label.text = text
+        label.font = UIFont(name: "AvenirNext-Medium", size: 12) ?? .systemFont(ofSize: 12, weight: .medium)
+        label.textColor = AppVisualTheme.textSecondary
+    }
+
+    private func configurePartnerValueLabel(_ label: UILabel) {
+        label.font = UIFont(name: "AvenirNext-DemiBold", size: 14) ?? .systemFont(ofSize: 14, weight: .semibold)
+        label.textColor = AppVisualTheme.textPrimary
+        label.textAlignment = .right
+        label.numberOfLines = 1
+    }
+
+    private func makePartnerInfoRow(caption: UILabel, value: UILabel) -> UIStackView {
+        let row = UIStackView(arrangedSubviews: [caption, value])
+        row.axis = .horizontal
+        row.alignment = .center
+        row.distribution = .fill
+        row.spacing = 10
+        caption.setContentHuggingPriority(.required, for: .horizontal)
+        value.setContentCompressionResistancePriority(.required, for: .horizontal)
+        return row
+    }
+
+    private var isTurkishLanguage: Bool {
+        Locale.preferredLanguages.first?.lowercased().hasPrefix("tr") == true
+    }
+
+    private func renderPartnerInfo(_ info: PairingViewModel.PartnerInfo?) {
+        guard let info else {
+            partnerInfoCard.isHidden = true
+            return
+        }
+
+        partnerInfoCard.isHidden = false
+        partnerNameValueLabel.text = info.displayName
+        partnerCodeValueLabel.text = info.pairCode
+        partnerStateValueLabel.text = info.isMutuallyPaired
+            ? (isTurkishLanguage ? "Eşleşti" : "Paired")
+            : (isTurkishLanguage ? "Beklemede" : "Pending")
+        partnerStateValueLabel.textColor = info.isMutuallyPaired
+            ? UIColor(red: 0.31, green: 0.78, blue: 0.48, alpha: 1)
+            : AppVisualTheme.textSecondary
+    }
+
     private func bindViewModel() {
         viewModel.onPairCodeUpdated = { [weak self] code in
             self?.pairCodeCard.text = L10n.f("pairing.pair_code.format", code)
@@ -194,6 +295,10 @@ final class PairingViewController: UIViewController {
 
         viewModel.onStateChanged = { [weak self] state, message in
             self?.render(state: state, message: message)
+        }
+
+        viewModel.onPartnerInfoUpdated = { [weak self] info in
+            self?.renderPartnerInfo(info)
         }
 
         viewModel.onIncomingRequestsUpdated = { [weak self] requests in
@@ -232,6 +337,7 @@ final class PairingViewController: UIViewController {
             clearPairButton.isHidden = true
             clearPairButton.isEnabled = false
             openChatButton.isHidden = true
+            partnerInfoCard.isHidden = true
             activity.stopAnimating()
 
         case .waiting:

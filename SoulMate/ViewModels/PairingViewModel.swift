@@ -15,11 +15,19 @@ final class PairingViewModel {
         case paired
     }
 
+    struct PartnerInfo: Equatable {
+        let uid: String
+        let displayName: String
+        let pairCode: String
+        let isMutuallyPaired: Bool
+    }
+
     var onStateChanged: ((State, String) -> Void)?
     var onPairCodeUpdated: ((String) -> Void)?
     var onError: ((String) -> Void)?
     var onNotice: ((String) -> Void)?
     var onPaired: ((String) -> Void)?
+    var onPartnerInfoUpdated: ((PartnerInfo?) -> Void)?
     var onIncomingRequestsUpdated: (([RelationshipRequest]) -> Void)?
     var onOutgoingRequestsUpdated: (([RelationshipRequest]) -> Void)?
 
@@ -229,6 +237,7 @@ final class PairingViewModel {
                     self.currentPartnerID = nil
                     self.isMutuallyPaired = false
                     self.hasEmittedPaired = false
+                    self.onPartnerInfoUpdated?(nil)
                     self.partnerProfileObserver?.cancel()
                     self.partnerProfileObserver = nil
                     self.encryption.clearSharedKey(partnerUID: partnerUID)
@@ -337,6 +346,7 @@ final class PairingViewModel {
             if let oldPartner = currentPartnerID, !oldPartner.isEmpty {
                 deleteLocalConversation(with: oldPartner)
             }
+            onPartnerInfoUpdated?(nil)
             currentPartnerID = nil
             hasLocalPendingUnpairRequest = false
             isMutuallyPaired = false
@@ -379,6 +389,19 @@ final class PairingViewModel {
                     self.hasEmittedPaired = false
                     self.onStateChanged?(.waiting, L10n.t("pairing.status.waiting_mutual"))
                 }
+
+                let fullName = [profile.firstName, profile.lastName]
+                    .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: " ")
+                let displayName = fullName.isEmpty ? L10n.t("chatvm.live.partner_name") : fullName
+                let pairCode = profile.sixDigitUID.trimmingCharacters(in: .whitespacesAndNewlines)
+                self.onPartnerInfoUpdated?(PartnerInfo(
+                    uid: uid,
+                    displayName: displayName,
+                    pairCode: pairCode.isEmpty ? "------" : pairCode,
+                    isMutuallyPaired: self.isMutuallyPaired
+                ))
             },
             onCancelled: { [weak self] error in
                 self?.emitError(error)
