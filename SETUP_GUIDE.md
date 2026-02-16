@@ -1,173 +1,236 @@
-# SoulMate Kurulum ve Yapılandırma Rehberi
+# SoulMate Kurulum ve Operasyon Rehberi
 
-Bu rehber, SoulMate iOS projesini sıfırdan kurmak, yapılandırmak ve dağıtmak için gerekli tüm adımları içerir.
+Bu doküman, SoulMate projesini sıfırdan kurmak, Firebase tarafını ayağa kaldırmak, iOS imzalama/capability ayarlarını tamamlamak ve üretim öncesi doğrulama yapmak için hazırlanmıştır.
 
 ## İçindekiler
 
-1.  [Gereksinimler](#1-gereksinimler)
-2.  [Proje Kurulumu](#2-proje-kurulumu)
-3.  [Firebase Yapılandırması](#3-firebase-yapılandırması)
-4.  [Push Notification Kurulumu](#4-push-notification-kurulumu)
-    *   [Apple Developer Ayarları](#41-apple-developer-ayarları)
-    *   [Firebase Cloud Messaging](#42-firebase-cloud-messaging)
-    *   [Xcode Ayarları](#43-xcode-main-app-target-capability-ayarları)
-    *   [Notification Service Extension](#44-notification-service-extension-target-ekleme)
-5.  [Backend (Cloud Functions & Rules)](#5-backend-cloud-functions--rules)
-6.  [Widget Kurulumu](#6-widget-kurulumu)
-7.  [Sıkça Sorulan Sorular ve Hata Çözümleri](#7-sıkça-sorulan-sorular-ve-hata-çözümleri)
+1. Gereksinimler
+2. Repo Kurulumu
+3. Firebase Proje Hazırlığı
+4. iOS Konfigürasyonu (`GoogleService-Info.plist`)
+5. Xcode Signing & Capabilities
+6. Notification Service Extension Ayarları
+7. Cloud Functions ve Rules Deploy
+8. İlk Çalıştırma Kontrol Listesi
+9. Public Repo Güvenlik Kontrolü
+10. Sık Karşılaşılan Hatalar ve Çözümler
 
----
+## 1) Gereksinimler
 
-## 1. Gereksinimler
+- macOS + güncel Xcode
+- Node.js 22 (Functions runtime ile uyumlu)
+- `npm`
+- Firebase CLI
+  - `npm i -g firebase-tools`
+- Apple Developer hesabı
+  - Push testleri için ücretli Developer Program gerekir (Personal Team kısıtlıdır)
 
-*   **Xcode**: En güncel sürüm (iOS 17+ SDK desteği için).
-*   **CocoaPods** veya **Swift Package Manager** (Proje SPM kullanmaktadır).
-*   **Firebase CLI**: `npm i -g firebase-tools`
-*   **Node.js**: Sürüm 20 (Cloud Functions için).
-*   **Apple Developer Hesabı**: Push notification ve App Group özellikleri için gereklidir.
-
----
-
-## 2. Proje Kurulumu
-
-1.  Repoyu klonlayın:
-    ```bash
-    git clone https://github.com/MahmutAKIN/SoulMate.git
-    cd SoulMate
-    ```
-
-2.  Swift Paketlerini Yükleyin:
-    Xcode üzerinden `File > Add Package Dependencies` menüsünü kullanarak aşağıdaki paketlerin yüklü olduğundan emin olun:
-    *   `firebase-ios-sdk` (Auth, Database, Messaging, Crashlytics) (github.com/firebase/firebase-ios-sdk)
-    *   `giphy-ios-sdk` (GiphyUISDK) (github.com/firebase/firebase-ios-sdk) ! Kullanabilmek API anahtarı almanız gereklidir. --> https://developers.giphy.com/dashboard/?create=true
-    *   `SDWebImage` (github.com/SDWebImage/SDWebImage.git)
-
----
-
-## 3. Firebase Yapılandırması
-
-SoulMate, backend olarak tamamen Firebase kullanır.
-
-1.  **Firebase Projesi Oluşturun**: [Firebase Console](https://console.firebase.google.com/) üzerinden yeni bir proje oluşturun.
-2.  **Servisleri Aktifleştirin**:
-    *   **Authentication**: Email/Password sağlayıcısını açın.
-    *   **Realtime Database**: Veritabanını oluşturun (bölge: `europe-west1` önerilir).
-    *   **Cloud Messaging**: Push bildirimleri için.
-    *   **Functions**: Backend mantığı için (Blaze planı gerektirir).
-    *   **Storage**: (Opsiyonel) Profil fotoğrafları için gerekirse.
-3.  **iOS Uygulamasını Ekleyin**:
-    *   Paket adı: `com.MahmutAKIN.SoulMate` (kendi bundle ID'nizi kullanın).
-    *   İndirdiğiniz `GoogleService-Info.plist` dosyasını `SoulMate/Core/Files/` klasörüne koyun (repo içinde commit etmeyin; dosya `.gitignore` ile gizlidir).
-    *   İsterseniz `SoulMate/Core/Files/GoogleService-Info.plist.example` dosyasını kopyalayıp `GoogleService-Info.plist` adıyla doldurabilirsiniz.
-4.  **API Key Yapılandırması**:
-    *   `AppDelegate.swift` içinde Giphy API key'inizi güncelleyin:
-        ```swift
-        Giphy.configure(apiKey: "VARSA_KEY_BURAYA")
-        ```
-
----
-
-## 4. Push Notification Kurulumu
-
-Anlık mesajlaşma deneyimi için Push Notification kurulumu kritiktir.
-
-### 4.1. Apple Developer Ayarları
-
-1.  [Apple Developer Portal](https://developer.apple.com/account) > **Certificates, Identifiers & Profiles**'a gidin.
-2.  **Identifiers** altında uygulamanızın App ID'sini bulun.
-3.  **Push Notifications** özelliğini (capability) etkinleştirin.
-4.  **Keys** bölümünde yeni bir APNs Auth Key (`.p8`) oluşturun.
-5.  Key dosyasını indirin ve `Key ID` ile `Team ID` değerlerini not edin.
-
-### 4.2. Firebase Cloud Messaging
-
-1.  Firebase Console > Project Settings > **Cloud Messaging** sekmesine gidin.
-2.  **Apple app configuration** altında APNs Authentication Key alanına `.p8` dosyanızı yükleyin.
-3.  `Key ID` ve `Team ID` bilgilerinizi girin.
-
-### 4.3. Xcode Main App Target Capability Ayarları
-
-Xcode'da `SoulMate` target'ı seçili iken **Signing & Capabilities** sekmesinde şu özellikleri ekleyin:
-
-*   **Push Notifications**
-*   **Background Modes**: `Remote notifications` seçeneğini işaretleyin.
-*   **App Groups**: `group.com.MahmutAKIN.SoulMate` (kendi group ID'niz).
-*   **Keychain Sharing**: `BQH8W6X63R.com.MahmutAKIN.SoulMate.shared` (kendi team ID'nizle).
-
-### 4.4. Notification Service Extension Target Ekleme
-
-Zengin bildirimler ve şifreli mesajların arka planda çözülmesi (decrypt) için bu adım zorunludur.
-
-1.  Xcode: `File > New > Target...` > **Notification Service Extension**.
-2.  İsim: `SoulMateNotificationService`.
-3.  Aşağıdaki dosyaların bu target'a ait olduğundan emin olun (File Inspector > Target Membership):
-    *   `SoulMateNotificationService/NotificationService.swift`
-4.  **Capabilities**:
-    *   Extension target için de **App Groups** ve **Keychain Sharing** yeteneklerini ana uygulama ile birebir aynı olacak şekilde ekleyin. Bu, anahtar paylaşımı ve veri okuma için şarttır.
-5.  **Info.plist**: `SoulMateNotificationService/Info.plist` dosyasının doğru yapılandırıldığını kontrol edin.
-
----
-
-## 5. Backend (Cloud Functions & Rules)
-
-Güvenlik kuralları ve sunucu taraflı işlemler için deploy gereklidir.
-
-### 5.1. Realtime Database Kuralları
+## 2) Repo Kurulumu
 
 ```bash
-firebase deploy --only database
+git clone <REPO_URL>
+cd SoulMate
 ```
-Bu komut `database.rules.json` dosyasını Firebase'e yükler.
 
-### 5.2. Cloud Functions
+Projede Swift Package Manager kullanılır. Xcode açıldığında paketler otomatik çözülür.
 
-Fonksiyonlar; eşleşme istekleri, oturum kilidi ve mesaj ACK mekanizması için kullanılır.
+Xcode ile aç:
 
-1.  Dizine gidin:
-    ```bash
-    cd firebase/functions
-    ```
-2.  Bağımlılıkları yükleyin:
-    ```bash
-    npm install
-    ```
-3.  Deploy edin:
-    ```bash
-    npm run deploy
-    # Veya
-    firebase deploy --only functions
-    ```
+```bash
+open SoulMate.xcodeproj
+```
 
-**Önemli Functions:**
-*   `sendEncryptedMessagePush`: Yeni mesaj geldiğinde tetiklenir ve push gönderir.
-*   `acquireSessionLock`: Tek cihaz oturumunu yönetir.
-*   `cleanupExpiredTransientMessages`: Teslim edilmeyen eski mesajları temizler.
+## 3) Firebase Proje Hazırlığı
+
+Firebase Console'da yeni proje oluştur ve aşağıdaki servisleri aç:
+
+- Authentication (Email/Password)
+- Realtime Database
+- Cloud Functions
+- Cloud Messaging
+
+Önerilen bölge:
+
+- Functions: `europe-west1`
+- Realtime Database: proje/altyapı ihtiyacına göre, gecikme açısından yakın bölge
+
+## 4) iOS Konfigürasyonu (`GoogleService-Info.plist`)
+
+1. Firebase projesine iOS app ekle.
+2. Bundle Identifier olarak kendi değerini kullan.
+3. `GoogleService-Info.plist` dosyasını indir.
+4. Dosyayı şu konuma koy:
+
+- `SoulMate/Core/Files/GoogleService-Info.plist`
+
+Notlar:
+
+- Bu dosya `.gitignore` nedeniyle repoya commit edilmez.
+- Örnek şablon mevcut:
+  - `SoulMate/Core/Files/GoogleService-Info.plist.example`
+
+## 5) Xcode Signing & Capabilities
+
+`TARGETS > SoulMate > Signing & Capabilities` altında kontrol et:
+
+- Team seçili olmalı
+- Bundle Identifier Firebase'deki iOS app ile birebir aynı olmalı
+- Capabilities:
+  - Push Notifications
+  - Background Modes -> Remote notifications
+  - App Groups
+  - Keychain Sharing
+
+Önemli:
+
+- `AppConfiguration.swift` içindeki şu değerler capability tarafıyla uyumlu olmalı:
+  - `AppConfiguration.appGroupIdentifier`
+  - `AppConfiguration.keychainAccessGroup`
+
+## 6) Notification Service Extension Ayarları
+
+`SoulMateNotificationService` target'ında:
+
+- Team/Signing doğru
+- App Groups ana target ile aynı
+- Keychain Sharing ana target ile aynı
+- `Info.plist` doğru target membership altında
+
+Bu extension, push payload içindeki şifreli gövdeyi işleyebilmek için kritiktir.
+
+## 7) Cloud Functions ve Rules Deploy
+
+Önce functions bağımlılıkları:
+
+```bash
+cd firebase/functions
+npm install
+cd ../..
+```
+
+Deploy (önerilen):
+
+```bash
+npx firebase-tools@latest deploy --project <FIREBASE_PROJECT_ID> --only functions,database
+```
+
+Notlar:
+
+- Silinecek eski function uyarısı gelirse, lokal kaynakta artık yoksa `y` ile temizleyebilirsin.
+- Deploy sonrası Firebase Console'dan function listesi ve database rules yayın zamanını kontrol et.
+
+## 8) İlk Çalıştırma Kontrol Listesi
+
+1. Uygulama açılıyor ve auth ekranı geliyor.
+2. Kayıt/giriş çalışıyor.
+3. Pair request gönderme/yanıtlama çalışıyor.
+4. Mesaj gönder/al çalışıyor.
+5. Tick/read/reaction akışı çalışıyor.
+6. Uygulama yeniden açıldığında local mesaj geçmişi görünüyor.
+7. Gerçek cihazda push token alınıyor (APNs capability doğruysa).
+
+## 9) Public Repo Güvenlik Kontrolü
+
+Public'e açmadan önce şu dosyaların git tarafından izlenmediğini doğrula:
+
+- `.firebaserc`
+- `SoulMate/Core/Files/GoogleService-Info.plist`
+- `firebase/functions/.env*`
+- `firebase/functions/.runtimeconfig.json`
+
+Hızlı kontrol:
+
+```bash
+git check-ignore -v .firebaserc SoulMate/Core/Files/GoogleService-Info.plist
+```
+
+Ek güvenlik önerileri:
+
+- Firebase API key'lerini iOS bundle kısıtıyla sınırla.
+- Geçmişte hassas anahtar commit edildiyse rotate/revoke et.
+
+## 10) Sık Karşılaşılan Hatalar ve Çözümler
+
+### A) `aps-environment` entitlement hatası
+
+Neden:
+
+- Push capability/provision profile uyumsuz
+- Personal Team ile push entitlement alınamaması
+
+Çözüm:
+
+1. Push Notifications capability kontrol et.
+2. Provisioning profile yenile.
+3. Ücretli Apple Developer hesabı ile yeniden sign et.
+
+### B) `Declining request for FCM Token since no APNS Token specified`
+
+Neden:
+
+- Simülatörde APNs token yok
+- Gerçek cihazda push capability eksik
+
+Çözüm:
+
+- Simülatörde bu log normaldir.
+- Gerçek cihazda capability + profile doğrula.
+
+### C) `permission_denied` (Realtime Database)
+
+Neden:
+
+- Rules deploy edilmemiş
+- Kullanıcı auth değil / token geçersiz
+- Pairing koşulu sağlanmıyor
+
+Çözüm:
+
+1. `database.rules.json` deploy et.
+2. Uygulamada yeniden login ol.
+3. Pairing durumunu kontrol et.
+
+### D) `ackMessageStored ... INTERNAL`
+
+Neden:
+
+- Functions kodu ile deploy edilen sürüm arasında uyumsuzluk
+- Eski/yarım kalmış function sürümü
+
+Çözüm:
+
+1. `functions,database` birlikte yeniden deploy et.
+2. Firebase Console'dan function loglarını incele.
+3. Eski/unused function uyarılarını temizle.
+
+### E) `Couldn't find firebase-functions package`
+
+Neden:
+
+- `firebase/functions/node_modules` eksik
+
+Çözüm:
+
+```bash
+cd firebase/functions
+npm install
+```
+
+## Faydalı Komutlar
+
+iOS build doğrulama:
+
+```bash
+xcodebuild -project SoulMate.xcodeproj -scheme SoulMate -destination 'generic/platform=iOS Simulator' build
+```
+
+Functions emulator:
+
+```bash
+cd firebase/functions
+npm run serve
+```
 
 ---
 
-## 6. Widget Kurulumu
-
-Ana ekranda partner durumunu görmek için Widget target'ı eklenmiştir.
-
-1.  Xcode: `File > New > Target...` > **Widget Extension**.
-2.  Dosyaları `SoulMateWidget` klasöründen target'a dahil edin.
-3.  Widget target'ına da **App Groups** eklemeyi unutmayın (`group.com.MahmutAKIN.SoulMate`).
-4.  `SoulMateWidget.swift` dosyasının giriş noktası (entry point) olduğunu doğrulayın.
-
----
-
-## 7. Sıkça Sorulan Sorular ve Hata Çözümleri
-
-### "aps-environment not found" Hatası
-Provisioning profile veya Entitlements hatasıdır. Xcode'da Push Notification capability'sinin açık olduğundan ve provision dosyasının güncel olduğundan emin olun.
-
-### Bildirim Geliyor Ama İçerik "Mesaj" Olarak Kalıyor / Şifre Çözülmüyor
-Notification Service Extension çalışmıyor veya anahtarlara erişemiyor demektir.
-*   App Group ve Keychain Sharing ayarlarının **hem App hem Extension** target'larında aynı olduğundan emin olun.
-*   Deployment Target sürümünün cihazınızla uyumlu olduğunu kontrol edin.
-
-### "createUnpairRequest failed: NOT FOUND"
-Cloud Function deploy edilmemiş. `firebase deploy --only functions` komutunu çalıştırın.
-
-### "Permission Denied" (Firebase)
-Genellikle `database.rules.json` dosyasının deploy edilmemesinden veya kullanıcının auth durumunun (token) geçerliliğini yitirmesinden kaynaklanır. Kuralları tekrar deploy edin ve uygulamada yeniden oturum açın.
+Bu rehber canlıda güvenli ve tekrarlanabilir kurulum hedefiyle hazırlanmıştır. Ortam bazlı farklar (bundle id, team id, proje id) için ilgili alanları kendi altyapına göre güncelle.

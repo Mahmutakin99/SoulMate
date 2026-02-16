@@ -1,60 +1,92 @@
 # SoulMate
 
-SoulMate, çiftler için özel iletişime odaklanan, modern ve güvenli bir iOS mesajlaşma uygulamasıdır. Programmatic UIKit yaklaşımıyla geliştirilmiş olup; kimlik doğrulama, eşleşme yönetimi, uçtan uca şifreleme (E2EE) ve tek cihaz oturum kilidi gibi gelişmiş özellikler sunar.
+SoulMate, yalnızca eşleşen iki kullanıcı arasında özel iletişim için tasarlanmış güvenli bir iOS mesajlaşma uygulamasıdır.
 
-## Özellikler
+Programmatic UIKit mimarisi, local-first mesaj akışı, uçtan uca şifreleme (E2EE) ve tek cihaz oturum kilidi ile gerçek kullanım senaryolarına odaklanır.
 
-*   **Güvenli Mesajlaşma**: Mesajlar cihazda şifrelenir ve sadece alıcı tarafından çözülebilir. Sunucuda asla düz metin saklanmaz.
-*   **Çift Odaklı Tasarım**: Sadece eşleştiğiniz kişiyle iletişim kurabilirsiniz.
-*   **Local-First Mimari**: Mesajlar önce cihaz veritabanına kaydedilir, internet bağlantısı olmasa bile geçmişe erişim sağlar.
-*   **Tek Cihaz Kilidi**: Aynı hesabın birden fazla cihazda eşzamanlı kullanılmasını engelleyerek güvenlik sağlar.
-*   **Gelişmiş Medya Desteği**: Text, Emoji ve özel "Kalp Atışı" mesajları.
-*   **Bildirimler**: Arka planda şifre çözme yeteneğine sahip zengin bildirimler.
+## Öne Çıkan Özellikler
 
-## Kullanılan Teknolojiler
+- 1:1 (çift odaklı) sohbet deneyimi
+- Uçtan uca şifreleme (CryptoKit: ECDH + HKDF-SHA256 + AES-GCM)
+- Local-first mesaj akışı (SQLite3)
+- Gönderildi / iletildi / okundu durumu (tick + read receipt)
+- Mesaj reaksiyonları (emoji)
+- Heartbeat (kalp atışı) etkileşimi
+- Tek cihaz oturum kilidi (session lock)
+- Push bildirimleri + Notification Service Extension ile şifreli içerik işleme
 
-*   **Dil**: Swift 5+
-*   **Arayüz**: UIKit (Programmatic, Storyboard yok)
-*   **Backend**: Firebase (Auth, Realtime Database, Cloud Functions 2nd Gen, Messaging)
-*   **Veritabanı**: SQLite3 (Yerel depolama için)
-*   **Şifreleme**: CryptoKit (ECDH, HKDF-SHA256, AES-GCM)
-*   **Kütüphaneler**: SDWebImage, GiphyUISDK
+## Mimari Özeti
 
-## Kurulum ve Başlangıç
+```text
+iOS (UIKit)
+  -> LocalMessageStore (SQLite3)
+  -> MessageSyncService (queue/retry/sync)
+  -> Firebase Realtime Database (mesaj/event akışı)
+  -> Firebase Functions (ack/read/reaction/session/pairing)
+  -> Firebase Messaging (push)
+```
 
-Projenin kurulumu, API anahtarlarının yapılandırılması ve backend deploy işlemleri için detaylı bir rehber hazırladık.
+## Teknoloji Yığını
 
-Lütfen kurulum adımları için aşağıdaki dokümanı inceleyin:
+- Dil: Swift 5+
+- UI: UIKit (Storyboard yok)
+- Yerel Veri: SQLite3
+- Backend: Firebase Auth, Realtime Database, Cloud Functions (2nd gen), Firebase Messaging
+- Şifreleme: CryptoKit
+- Diğer: SDWebImage, GiphyUISDK (legacy GIF gösterimi için)
 
-👉 **[SoulMate Kurulum ve Yapılandırma Rehberi (SETUP_GUIDE.md)](SETUP_GUIDE.md)**
+## Hızlı Başlangıç
 
-## Public Repo Notu (Önemli)
+Detaylı kurulum için: [`SETUP_GUIDE.md`](SETUP_GUIDE.md)
 
-Bu repo public paylaşım için aşağıdaki dosyaları bilerek commit etmez:
+Özet akış:
 
-*   `.firebaserc`
-*   `SoulMate/Core/Files/GoogleService-Info.plist`
-*   `firebase/functions/.env*`
+1. Repoyu klonla.
+2. `SoulMate/Core/Files/GoogleService-Info.plist` dosyasını Firebase projenle oluştur.
+3. Xcode'da `SoulMate.xcodeproj` aç, signing/capabilities ayarlarını tamamla.
+4. Backend deploy et:
+   - `npx firebase-tools@latest deploy --project <FIREBASE_PROJECT_ID> --only functions,database`
+5. Uygulamayı gerçek cihazda çalıştır.
 
-Kurulumdan sonra `SoulMate/Core/Files/GoogleService-Info.plist.example` dosyasını kendi Firebase değerlerinle doldurup `GoogleService-Info.plist` adıyla oluşturmalısın.
+## Public Repo ve Gizli Bilgiler
+
+Aşağıdaki dosyalar bilinçli olarak Git dışında tutulur:
+
+- `.firebaserc`
+- `SoulMate/Core/Files/GoogleService-Info.plist`
+- `firebase/functions/.env*`
+- `firebase/functions/.runtimeconfig.json`
+
+Örnek konfigürasyon dosyası:
+
+- `SoulMate/Core/Files/GoogleService-Info.plist.example`
 
 ## Proje Yapısı
 
 ```text
 SoulMate/
-├── SoulMate/                  # Ana uygulama kodu (Controllers, ViewModels, Core)
-├── SoulMateWidget/            # iOS Widget extension
-├── SoulMateNotificationService/# Bildirim şifre çözme servisi
-├── firebase/functions/        # Backend mantığı (Node.js)
-├── database.rules.json        # Veritabanı güvenlik kuralları
-└── SETUP_GUIDE.md             # Kurulum rehberi
+├── SoulMate/                      # Ana iOS uygulaması (Core, Controllers, ViewModels, Models, Views)
+├── SoulMateNotificationService/   # Bildirim extension (decrypt pipeline)
+├── SoulMateWidget/                # Widget extension
+├── firebase/functions/            # Cloud Functions (Node.js 22)
+├── database.rules.json            # Realtime Database güvenlik kuralları
+├── SETUP_GUIDE.md                 # Kurulum ve operasyon rehberi
+└── README.md
 ```
 
-## Güvenlik Notları
+## Operasyonel Notlar
 
-*   **Uçtan Uca Şifreleme**: Mesaj içerikleri sunucuya gitmeden önce cihazda şifrelenir.
-*   **Anahtar Yönetimi**: Özel anahtarlar Keychain'de saklanır (`AccessibleAfterFirstUnlockThisDeviceOnly`).
-*   **Geçici Depolama**: Sunucu sadece şifreli mesajları geçici olarak tutar, teslim edildikten sonra silinir.
+- Functions runtime: Node.js 22
+- Varsayılan callable bölgesi: `europe-west1`
+- Realtime Database kuralları deploy edilmeden canlı kullanım yapılmamalı
+- Personal Team ile APNs capability sınırlı olabilir; push doğrulamasını mümkünse ücretli Apple Developer hesabıyla yap
+
+## Katkı ve Bakım
+
+- Pull request öncesi local build alın:
+  - `xcodebuild -project SoulMate.xcodeproj -scheme SoulMate -destination 'generic/platform=iOS Simulator' build`
+- Backend değişikliklerinde functions + rules birlikte deploy edin.
 
 ---
+
 Geliştirici: Mahmut AKIN
