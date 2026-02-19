@@ -10,8 +10,8 @@ import UIKit
 final class SplashViewController: UIViewController {
     var onFinished: (() -> Void)?
 
-    private let totalDuration: TimeInterval = 0.10
     private let travelDuration: TimeInterval = 0.75
+    private let finishFallbackDelay: TimeInterval = 1.6
 
     private let backgroundView = UIView()
     private let backgroundGradientLayer = CAGradientLayer()
@@ -25,7 +25,7 @@ final class SplashViewController: UIViewController {
     private let rightGradientLayer = CAGradientLayer()
 
     private var hasStartedAnimation = false
-    private var hasScheduledFinish = false
+    private var hasFinished = false
     private var orbDiameter: CGFloat = 140
 
     override func viewDidLoad() {
@@ -210,11 +210,8 @@ final class SplashViewController: UIViewController {
 
         CATransaction.commit()
 
-        if !hasScheduledFinish {
-            hasScheduledFinish = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + totalDuration) { [weak self] in
-                self?.onFinished?()
-            }
+        DispatchQueue.main.asyncAfter(deadline: .now() + finishFallbackDelay) { [weak self] in
+            self?.finishIfNeeded()
         }
     }
 
@@ -250,9 +247,17 @@ final class SplashViewController: UIViewController {
             self.logoContainerView.transform = .identity
         }
 
-        UIView.animate(withDuration: 0.28, delay: 0.08, options: [.curveEaseOut]) {
+        UIView.animate(withDuration: 0.28, delay: 0.08, options: [.curveEaseOut], animations: {
             self.titleLabel.alpha = 1
             self.titleLabel.transform = .identity
-        }
+        }, completion: { [weak self] _ in
+            self?.finishIfNeeded()
+        })
+    }
+
+    private func finishIfNeeded() {
+        guard !hasFinished else { return }
+        hasFinished = true
+        onFinished?()
     }
 }

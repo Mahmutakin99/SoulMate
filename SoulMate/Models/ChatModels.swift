@@ -113,6 +113,31 @@ struct ChatMessageMeta: Equatable {
     let reactions: [MessageReaction]
 }
 
+enum MessageListDeltaKind {
+    case initial
+    case append
+    case prepend
+    case metaUpdate
+}
+
+struct MessageListDelta {
+    let kind: MessageListDeltaKind
+    let changedMessageIDs: Set<String>
+}
+
+enum MessageReceiptDeltaEvent {
+    case upsert(MessageReceipt)
+    case remove(messageID: String)
+}
+
+enum MessageReactionDeltaEvent {
+    case replace(
+        messageID: String,
+        reactors: [(reactorUID: String, envelope: MessageReactionEnvelope)]
+    )
+    case removeMessage(messageID: String)
+}
+
 struct IncomingRequestBadgeState: Equatable {
     let total: Int
     let pairCount: Int
@@ -283,6 +308,7 @@ struct EncryptedMessageEnvelope: Codable {
     let recipientID: String
     let payload: String
     let sentAt: TimeInterval
+    let timestamp: TimeInterval
     let keyVersion: Int
 
     var dictionaryValue: [String: Any] {
@@ -292,16 +318,26 @@ struct EncryptedMessageEnvelope: Codable {
             "recipientID": recipientID,
             "payload": payload,
             "sentAt": sentAt,
+            "timestamp": timestamp,
             "keyVersion": keyVersion
         ]
     }
 
-    init(id: String, senderID: String, recipientID: String, payload: String, sentAt: TimeInterval, keyVersion: Int = 1) {
+    init(
+        id: String,
+        senderID: String,
+        recipientID: String,
+        payload: String,
+        sentAt: TimeInterval,
+        timestamp: TimeInterval? = nil,
+        keyVersion: Int = 1
+    ) {
         self.id = id
         self.senderID = senderID
         self.recipientID = recipientID
         self.payload = payload
         self.sentAt = sentAt
+        self.timestamp = timestamp ?? sentAt
         self.keyVersion = keyVersion
     }
 
@@ -316,11 +352,14 @@ struct EncryptedMessageEnvelope: Codable {
             return nil
         }
 
+        let timestamp = (data["timestamp"] as? TimeInterval) ?? sentAt
+
         self.id = id
         self.senderID = senderID
         self.recipientID = recipientID
         self.payload = payload
         self.sentAt = sentAt
+        self.timestamp = timestamp
         self.keyVersion = keyVersion
     }
 }

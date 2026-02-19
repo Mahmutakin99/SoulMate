@@ -42,8 +42,8 @@ enum AppConfiguration {
     }
 
     enum ChatPerformance {
-        static let initialMessageWindow: UInt = 80
-        static let historyPageSize: UInt = 50
+        static let initialMessageWindow: UInt = 60
+        static let historyPageSize: UInt = 60
         static let historyPreloadTopRowThreshold = 6
         static let maxInMemoryMessages = 350
         static let maxInMemoryMessagesOnPressure = 180
@@ -51,12 +51,25 @@ enum AppConfiguration {
 
     enum MessageQueue {
         static let cloudTTLSeconds: TimeInterval = 7 * 24 * 60 * 60
-        static let initialCloudSyncWindow: UInt = 120
-        static let localPageSize: UInt = 50
+        static let initialCloudSyncWindow: UInt = 60
+        static let localPageSize: UInt = 60
+    }
+
+    enum Performance {
+        static let initialLocalWindow: UInt = 60
+        static let historyPageSize: UInt = 60
+        static let bootstrapCloudWindow: UInt = 60
+        static let firstPaintLogEnabled = true
     }
 
     enum FeatureFlags {
         static let localFirstEphemeralMessaging = true
+        static let enableHybridSnapshotLaunch = true
+        static let enableDeltaOnlyChatObservers = true
+        static let enableConditionalBootstrap = true
+        static let enableDeltaCoalescing = true
+        static let enableScopedMetadataFetch = true
+        static let enableBalancedLaunchFallback = true
     }
 
     enum ImageCache {

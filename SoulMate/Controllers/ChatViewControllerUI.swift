@@ -131,7 +131,6 @@ extension ChatViewController {
         tableContainer.translatesAutoresizingMaskIntoConstraints = false
 
         tableView.register(ChatMessageCell.self, forCellReuseIdentifier: ChatMessageCell.reuseIdentifier)
-        tableView.dataSource = self
         tableView.delegate = self
         tableView.separatorStyle = .none
         tableView.backgroundColor = .clear
@@ -139,6 +138,7 @@ extension ChatViewController {
         tableView.estimatedRowHeight = 96
         tableView.keyboardDismissMode = .interactive
         tableView.translatesAutoresizingMaskIntoConstraints = false
+        configureMessageDataSource()
 
         emptyStateLabel.text = L10n.t("chat.empty.pair_first")
         emptyStateLabel.numberOfLines = 0
@@ -283,6 +283,14 @@ extension ChatViewController {
             queue: .main
         ) { [weak self] _ in
             self?.handleMemoryWarning()
+        }
+
+        backgroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.viewModel.flushLaunchSnapshotIfPossible()
         }
     }
 

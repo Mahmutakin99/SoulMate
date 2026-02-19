@@ -381,6 +381,9 @@ extension FirebaseManager {
         }
 
         let timeoutWorkItem = DispatchWorkItem {
+            #if DEBUG
+            print("LAUNCH_VALIDATION_TIMEOUT action=acquireSessionLock timeout=\(timeout)s")
+            #endif
             finish(.failure(FirebaseManagerError.sessionValidationFailed))
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: timeoutWorkItem)
@@ -422,6 +425,9 @@ extension FirebaseManager {
         }
 
         let timeoutWorkItem = DispatchWorkItem {
+            #if DEBUG
+            print("LAUNCH_VALIDATION_TIMEOUT action=releaseSessionLock timeout=\(timeout)s")
+            #endif
             finish(.failure(FirebaseManagerError.logoutRequiresNetwork))
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: timeoutWorkItem)

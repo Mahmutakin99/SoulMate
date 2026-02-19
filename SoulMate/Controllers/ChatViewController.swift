@@ -120,6 +120,7 @@ final class ChatViewController: UIViewController {
 
     let tableContainer = UIView()
     let tableView = UITableView(frame: .zero, style: .plain)
+    var messageDataSource: UITableViewDiffableDataSource<Int, String>?
     let emptyStateLabel = UILabel()
     var tableMinHeightConstraint: NSLayoutConstraint!
 
@@ -152,6 +153,7 @@ final class ChatViewController: UIViewController {
     let detailsDimView = UIControl()
     let detailsDrawerView = UIView()
     let detailsTitleLabel = UILabel()
+    let detailsScrollView = UIScrollView()
     let detailsStack = UIStackView()
     let secureInfoRow = UIView()
     let pairInfoRow = UIView()
@@ -192,6 +194,7 @@ final class ChatViewController: UIViewController {
         UserDefaults.standard.stringArray(forKey: ChatViewController.revealedSecretMessagesPreferenceKey) ?? []
     )
     var memoryWarningObserver: NSObjectProtocol?
+    var backgroundObserver: NSObjectProtocol?
     var showsSplashOnLaunch = UserDefaults.standard.object(
         forKey: AppConfiguration.UserPreferenceKey.showsSplashOnLaunch
     ) as? Bool ?? true
@@ -199,6 +202,11 @@ final class ChatViewController: UIViewController {
     var previousMessageCount = 0
     var previousLastMessageID: String?
     var gifPlaybackUpdateWorkItem: DispatchWorkItem?
+    var coalescedSnapshotApplyWorkItem: DispatchWorkItem?
+    var pendingSnapshotNeedsFullReload = false
+    var pendingSnapshotShouldStickToBottom = false
+    var pendingSnapshotCurrentCount: Int?
+    var pendingSnapshotReconfigureIDs = Set<String>()
     var incomingRequestBadgeState: IncomingRequestBadgeState = .empty
     var hasInitializedRequestIndicator = false
     var reactionPickerOverlay: UIControl?
@@ -234,7 +242,11 @@ final class ChatViewController: UIViewController {
         if let memoryWarningObserver {
             NotificationCenter.default.removeObserver(memoryWarningObserver)
         }
+        if let backgroundObserver {
+            NotificationCenter.default.removeObserver(backgroundObserver)
+        }
         gifPlaybackUpdateWorkItem?.cancel()
+        coalescedSnapshotApplyWorkItem?.cancel()
     }
 
     override func viewDidLoad() {
@@ -249,6 +261,7 @@ final class ChatViewController: UIViewController {
         registerForThemeChanges()
         bindViewModel()
         applyTheme()
+        ChatPerfLogger.mark("t0_viewDidLoad")
 
         viewModel.start()
     }
@@ -260,12 +273,14 @@ final class ChatViewController: UIViewController {
 
         if needsDeferredMessageReload {
             needsDeferredMessageReload = false
-            tableView.reloadData()
-            updateEmptyStateVisibility()
-            scrollToBottom(animated: false)
-            previousMessageCount = viewModel.numberOfMessages()
-            previousLastMessageID = previousMessageCount > 0 ? viewModel.message(at: previousMessageCount - 1).id : nil
-            scheduleVisibleGIFPlaybackUpdate(isEnabled: !(tableView.isDragging || tableView.isDecelerating), delay: 0.08)
+            applyMessageSnapshot(animatingDifferences: false) { [weak self] in
+                guard let self else { return }
+                self.updateEmptyStateVisibility()
+                self.scrollToBottom(animated: false)
+                self.previousMessageCount = self.viewModel.numberOfMessages()
+                self.previousLastMessageID = self.previousMessageCount > 0 ? self.viewModel.message(at: self.previousMessageCount - 1).id : nil
+                self.scheduleVisibleGIFPlaybackUpdate(isEnabled: !(self.tableView.isDragging || self.tableView.isDecelerating), delay: 0.08)
+            }
         }
 
         if let pendingErrorMessage {
@@ -282,6 +297,7 @@ final class ChatViewController: UIViewController {
         stopHeartbeatHoldSession()
         dismissReactionQuickPicker()
         setDetailsDrawerVisibility(false, animated: false)
+        viewModel.flushLaunchSnapshotIfPossible()
     }
 
     override func viewDidLayoutSubviews() {

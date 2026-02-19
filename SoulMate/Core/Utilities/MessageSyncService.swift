@@ -175,7 +175,8 @@ final class MessageSyncService {
             chatID: context.chatID,
             message: message,
             direction: direction,
-            uploadState: .uploaded
+            uploadState: .uploaded,
+            serverTimestampMs: Int64(envelope.timestamp * 1000)
         )
 
         if direction == .outgoing {
@@ -230,11 +231,17 @@ final class MessageSyncService {
             .filter { $0.direction == .incoming }
             .map(\.message)
         if !incomingMessages.isEmpty {
+            let incomingServerTimestamps = Dictionary(
+                uniqueKeysWithValues: decoded
+                    .filter { $0.direction == .incoming }
+                    .map { ($0.message.id, Int64($0.envelope.timestamp * 1000)) }
+            )
             _ = try localStore.insertBatchIfNeeded(
                 chatID: context.chatID,
                 messages: incomingMessages,
                 direction: .incoming,
-                uploadState: .uploaded
+                uploadState: .uploaded,
+                serverTimestampMsByMessageID: incomingServerTimestamps
             )
         }
 
@@ -242,11 +249,17 @@ final class MessageSyncService {
             .filter { $0.direction == .outgoing }
             .map(\.message)
         if !outgoingMessages.isEmpty {
+            let outgoingServerTimestamps = Dictionary(
+                uniqueKeysWithValues: decoded
+                    .filter { $0.direction == .outgoing }
+                    .map { ($0.message.id, Int64($0.envelope.timestamp * 1000)) }
+            )
             _ = try localStore.insertBatchIfNeeded(
                 chatID: context.chatID,
                 messages: outgoingMessages,
                 direction: .outgoing,
-                uploadState: .uploaded
+                uploadState: .uploaded,
+                serverTimestampMsByMessageID: outgoingServerTimestamps
             )
 
             for outgoing in outgoingMessages {
@@ -371,7 +384,7 @@ final class MessageSyncService {
                             self.scheduleRetryWithBackoff()
                         }
                     }
-                    self.reportError(error)
+                    self.reportAckRetryError(error, messageID: messageID)
                 }
             }
         }
@@ -379,7 +392,9 @@ final class MessageSyncService {
 
     private func scheduleRetryWithBackoff() {
         queue.async {
-            self.scheduleRetry(after: self.retryDelay)
+            let jitter = Double.random(in: 0.85...1.25)
+            let delay = min(self.retryDelay * jitter, self.maxRetryDelay)
+            self.scheduleRetry(after: delay)
             self.retryDelay = min(self.retryDelay * 2, self.maxRetryDelay)
         }
     }
@@ -447,7 +462,8 @@ final class MessageSyncService {
         }
 
         isRetryCycleRunning = false
-        scheduleRetry(after: 20)
+        let idleJitter = Double.random(in: 0.9...1.2)
+        scheduleRetry(after: 20 * idleJitter)
         retryDelay = 1
     }
 
@@ -470,6 +486,14 @@ final class MessageSyncService {
 
         guard shouldEmit else { return }
         onError?(error)
+    }
+
+    private func reportAckRetryError(_ error: Error, messageID: String) {
+        let _ = messageID
+        #if DEBUG
+        let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        print("ACK_RETRY queued messageID=\(messageID) reason=\(message)")
+        #endif
     }
 
     private func isNonRetryableUploadError(_ error: Error) -> Bool {

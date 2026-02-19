@@ -52,10 +52,11 @@
         ".write": "auth != null && root.child('users').child(auth.uid).child('partnerID').val() != null && root.child('users').child(root.child('users').child(auth.uid).child('partnerID').val()).child('partnerID').val() === auth.uid && ($chatId === auth.uid + '_' + root.child('users').child(auth.uid).child('partnerID').val() || $chatId === root.child('users').child(auth.uid).child('partnerID').val() + '_' + auth.uid)",
         "messages": {
           ".indexOn": [
+            "timestamp",
             "sentAt"
           ],
           "$messageId": {
-            ".validate": "newData.hasChildren(['id','senderID','recipientID','payload','sentAt','keyVersion']) && newData.child('id').val() === $messageId && newData.child('senderID').val() === auth.uid && newData.child('recipientID').val() === root.child('users').child(auth.uid).child('partnerID').val() && newData.child('payload').isString() && newData.child('payload').val().length > 0 && newData.child('sentAt').isNumber() && newData.child('keyVersion').isNumber()",
+            ".validate": "newData.hasChildren(['id','senderID','recipientID','payload','sentAt','keyVersion']) && newData.child('id').val() === $messageId && newData.child('senderID').val() === auth.uid && newData.child('recipientID').val() === root.child('users').child(auth.uid).child('partnerID').val() && newData.child('payload').isString() && newData.child('payload').val().length > 0 && newData.child('sentAt').isNumber() && newData.child('keyVersion').isNumber() && (!newData.child('timestamp').exists() || newData.child('timestamp').isNumber())",
             "id": {
               ".validate": "newData.isString()"
             },
@@ -69,6 +70,9 @@
               ".validate": "newData.isString() && newData.val().length > 0"
             },
             "sentAt": {
+              ".validate": "newData.isNumber()"
+            },
+            "timestamp": {
               ".validate": "newData.isNumber()"
             },
             "keyVersion": {

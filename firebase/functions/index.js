@@ -255,6 +255,21 @@ exports.sendEncryptedMessagePush = onValueCreated(
     const recipientID = typeof message.recipientID === "string" ? message.recipientID : "";
     const senderID = typeof message.senderID === "string" ? message.senderID : "";
     const encryptedPayload = typeof message.payload === "string" ? message.payload : "";
+    const sentAt = Number(message.sentAt || 0);
+    const timestamp = Number(message.timestamp || 0);
+
+    if (!(timestamp > 0) && sentAt > 0) {
+      try {
+        await event.data.ref.child("timestamp").set(sentAt);
+      } catch (error) {
+        logger.warn("Mesaj timestamp backfill başarısız.", {
+          chatId: event.params.chatId,
+          messageId: event.params.messageId,
+          errorCode: error?.code,
+          errorMessage: error?.message || String(error)
+        });
+      }
+    }
 
     if (!recipientID || !senderID || !encryptedPayload) {
       logger.warn("Eksik mesaj alanı, push atlanıyor.", {
@@ -326,50 +341,72 @@ exports.sendEncryptedMessagePush = onValueCreated(
 exports.ackMessageStored = onCall(
   { region: CALLABLE_REGION },
   async (request) => {
-    const uid = request.auth?.uid;
-    if (!uid) {
-      throw new HttpsError("unauthenticated", "auth_required");
+    try {
+      const uid = request.auth?.uid;
+      if (!uid) {
+        throw new HttpsError("unauthenticated", "auth_required");
+      }
+
+      const chatID = normalizedString(request.data?.chatID);
+      const messageID = normalizedString(request.data?.messageID);
+      if (!chatID || !messageID) {
+        throw new HttpsError("invalid-argument", "invalid_ack_input");
+      }
+
+      const messageRef = admin.database().ref(`/chats/${chatID}/messages/${messageID}`);
+      const messageSnap = await messageRef.get();
+      if (!messageSnap.exists()) {
+        return { success: true, alreadyAcked: true };
+      }
+
+      const message = messageSnap.val() || {};
+      const senderID = normalizedString(message.senderID);
+      const recipientID = normalizedString(message.recipientID);
+      if (!recipientID) {
+        await messageRef.remove();
+        return { success: true, alreadyAcked: true, messageMalformed: true };
+      }
+
+      if (recipientID !== uid) {
+        throw new HttpsError("failed-precondition", "ack_forbidden");
+      }
+
+      const now = nowSeconds();
+      const receiptRef = admin.database().ref(`/events/${chatID}/messageReceipts/${messageID}`);
+      const transactionResult = await receiptRef.transaction((current) => {
+        const existing = current || {};
+        const deliveredAt = Number(existing.deliveredAt || 0) > 0
+          ? Number(existing.deliveredAt)
+          : now;
+        const readAt = Number(existing.readAt || 0) > 0
+          ? Number(existing.readAt)
+          : null;
+
+        return {
+          senderID,
+          recipientID,
+          deliveredAt,
+          readAt,
+          updatedAt: now
+        };
+      });
+
+      const deliveredAt = Number(transactionResult?.snapshot?.val()?.deliveredAt || now);
+      await messageRef.remove();
+      return { success: true, deliveredAt };
+    } catch (error) {
+      if (error instanceof HttpsError) {
+        throw error;
+      }
+      logger.error("ackMessageStored failed.", {
+        uid: request.auth?.uid || "",
+        chatID: normalizedString(request.data?.chatID),
+        messageID: normalizedString(request.data?.messageID),
+        errorCode: error?.code,
+        errorMessage: error?.message || String(error)
+      });
+      throw new HttpsError("internal", "ack_internal_error");
     }
-
-    const chatID = normalizedString(request.data?.chatID);
-    const messageID = normalizedString(request.data?.messageID);
-    if (!chatID || !messageID) {
-      throw new HttpsError("invalid-argument", "invalid_ack_input");
-    }
-
-    const messageRef = admin.database().ref(`/chats/${chatID}/messages/${messageID}`);
-    const snap = await messageRef.get();
-    if (!snap.exists()) {
-      return { success: true, alreadyAcked: true };
-    }
-
-    const message = snap.val() || {};
-    if (normalizedString(message.recipientID) !== uid) {
-      throw new HttpsError("failed-precondition", "ack_forbidden");
-    }
-
-    const receiptRef = admin.database().ref(`/events/${chatID}/messageReceipts/${messageID}`);
-    const existingReceiptSnap = await receiptRef.get();
-    const existingReceipt = existingReceiptSnap.val() || {};
-    const now = nowSeconds();
-    const deliveredAt = Number(existingReceipt.deliveredAt || 0) > 0
-      ? Number(existingReceipt.deliveredAt)
-      : now;
-    const readAt = Number(existingReceipt.readAt || 0) > 0
-      ? Number(existingReceipt.readAt)
-      : null;
-
-    const updates = {
-      [`/events/${chatID}/messageReceipts/${messageID}/senderID`]: normalizedString(message.senderID),
-      [`/events/${chatID}/messageReceipts/${messageID}/recipientID`]: normalizedString(message.recipientID),
-      [`/events/${chatID}/messageReceipts/${messageID}/deliveredAt`]: deliveredAt,
-      [`/events/${chatID}/messageReceipts/${messageID}/updatedAt`]: now,
-      [`/events/${chatID}/messageReceipts/${messageID}/readAt`]: readAt,
-      [`/chats/${chatID}/messages/${messageID}`]: null
-    };
-
-    await admin.database().ref().update(updates);
-    return { success: true, deliveredAt };
   }
 );
 

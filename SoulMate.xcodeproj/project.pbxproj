@@ -16,6 +16,7 @@
 		CA75FC012F364C5F00CE2D6D /* SDWebImage in Frameworks */ = {isa = PBXBuildFile; productRef = CA75FC002F364C5F00CE2D6D /* SDWebImage */; };
 		CA75FC032F364C5F00CE2D6D /* SDWebImageMapKit in Frameworks */ = {isa = PBXBuildFile; productRef = CA75FC022F364C5F00CE2D6D /* SDWebImageMapKit */; };
 		CA75FC062F364CFC00CE2D6D /* GiphyUISDK in Frameworks */ = {isa = PBXBuildFile; productRef = CA75FC052F364CFC00CE2D6D /* GiphyUISDK */; };
+		D1A10000123456789ABCDEF0 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = D1A10001123456789ABCDEF0 /* GRDB */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -47,10 +48,11 @@
 		CA75FB3A2F36364000CE2D6D /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
-			files = (
-				CA75FC012F364C5F00CE2D6D /* SDWebImage in Frameworks */,
-				CA75FBF92F36425B00CE2D6D /* FirebaseMessaging in Frameworks */,
-				CA75FBF82F365AAA00CE2D6D /* FirebaseFunctions in Frameworks */,
+				files = (
+					D1A10000123456789ABCDEF0 /* GRDB in Frameworks */,
+					CA75FC012F364C5F00CE2D6D /* SDWebImage in Frameworks */,
+					CA75FBF92F36425B00CE2D6D /* FirebaseMessaging in Frameworks */,
+					CA75FBF82F365AAA00CE2D6D /* FirebaseFunctions in Frameworks */,
 				CA75FBF72F36425B00CE2D6D /* FirebaseDatabase in Frameworks */,
 				CA75FC062F364CFC00CE2D6D /* GiphyUISDK in Frameworks */,
 				CA75FBF32F36425B00CE2D6D /* FirebaseAuth in Frameworks */,
@@ -98,10 +100,11 @@
 				CA75FB3F2F36364000CE2D6D /* SoulMate */,
 			);
 			name = SoulMate;
-			packageProductDependencies = (
-				CA75FBF22F36425B00CE2D6D /* FirebaseAuth */,
-				CA75FBF42F36425B00CE2D6D /* FirebaseCrashlytics */,
-				CA75FBF62F36425B00CE2D6D /* FirebaseDatabase */,
+				packageProductDependencies = (
+					D1A10001123456789ABCDEF0 /* GRDB */,
+					CA75FBF22F36425B00CE2D6D /* FirebaseAuth */,
+					CA75FBF42F36425B00CE2D6D /* FirebaseCrashlytics */,
+					CA75FBF62F36425B00CE2D6D /* FirebaseDatabase */,
 				CA75FBF72F365AAA00CE2D6D /* FirebaseFunctions */,
 				CA75FBF82F36425B00CE2D6D /* FirebaseMessaging */,
 				CA75FBFA2F36425B00CE2D6D /* FirebaseStorage */,
@@ -138,10 +141,11 @@
 			);
 			mainGroup = CA75FB342F36364000CE2D6D;
 			minimizedProjectReferenceProxies = 1;
-			packageReferences = (
-				CA75FBF12F36425B00CE2D6D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
-				CA75FBFF2F364C5F00CE2D6D /* XCRemoteSwiftPackageReference "SDWebImage" */,
-				CA75FC042F364CFC00CE2D6D /* XCRemoteSwiftPackageReference "giphy-ios-sdk" */,
+				packageReferences = (
+					D1A10002123456789ABCDEF0 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
+					CA75FBF12F36425B00CE2D6D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+					CA75FBFF2F364C5F00CE2D6D /* XCRemoteSwiftPackageReference "SDWebImage" */,
+					CA75FC042F364CFC00CE2D6D /* XCRemoteSwiftPackageReference "giphy-ios-sdk" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = CA75FB3E2F36364000CE2D6D /* Products */;
@@ -393,6 +397,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		D1A10002123456789ABCDEF0 /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDB.swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 7.4.0;
+			};
+		};
 		CA75FBF12F36425B00CE2D6D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
@@ -420,6 +432,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		D1A10001123456789ABCDEF0 /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D1A10002123456789ABCDEF0 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDB;
+		};
 		CA75FBF22F36425B00CE2D6D /* FirebaseAuth */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = CA75FBF12F36425B00CE2D6D /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;

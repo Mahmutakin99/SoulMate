@@ -137,10 +137,10 @@ final class FirebaseManager: NSObject {
         }
 
         envelopes.sort { lhs, rhs in
-            if lhs.sentAt == rhs.sentAt {
+            if lhs.timestamp == rhs.timestamp {
                 return lhs.id < rhs.id
             }
-            return lhs.sentAt < rhs.sentAt
+            return lhs.timestamp < rhs.timestamp
         }
         return envelopes
     }

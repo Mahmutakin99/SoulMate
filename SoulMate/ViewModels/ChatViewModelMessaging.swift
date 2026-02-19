@@ -186,7 +186,7 @@ extension ChatViewModel {
 
         let targetIDs = Set(ids)
             .filter { id in
-                guard let message = messages.first(where: { $0.id == id }) else { return false }
+                guard let message = messageByID[id] else { return false }
                 guard message.recipientID == currentUserID else { return false }
                 return messageReceiptsByID[id]?.readAt == nil
             }
@@ -246,27 +246,12 @@ extension ChatViewModel {
 
         messageReceiptsObserver = firebase.observeMessageReceipts(
             chatID: chatID,
-            onChange: { [weak self] receipts in
+            onEvent: { [weak self] event in
                 guard let self else { return }
-                self.notifyOnMain {
-                    var changedIDs = Set<String>()
-                    var newMap: [String: MessageReceipt] = [:]
-                    receipts.forEach { receipt in
-                        newMap[receipt.messageID] = receipt
-                    }
-
-                    let existingKeys = Set(self.messageReceiptsByID.keys)
-                    let incomingKeys = Set(newMap.keys)
-                    changedIDs.formUnion(existingKeys.subtracting(incomingKeys))
-                    changedIDs.formUnion(incomingKeys.subtracting(existingKeys))
-                    for messageID in incomingKeys.intersection(existingKeys) {
-                        if self.messageReceiptsByID[messageID] != newMap[messageID] {
-                            changedIDs.insert(messageID)
-                        }
-                    }
-
-                    self.messageReceiptsByID = newMap
-                    for receipt in receipts {
+                self.messageMetadataProcessingQueue.async { [weak self] in
+                    guard let self else { return }
+                    switch event {
+                    case .upsert(let receipt):
                         do {
                             try self.localMessageStore.upsertReceipt(
                                 chatID: chatID,
@@ -280,9 +265,31 @@ extension ChatViewModel {
                         } catch {
                             self.emitError(error)
                         }
-                    }
 
-                    self.rebuildMessageMetadata(for: changedIDs, notify: true)
+                        self.notifyOnMain {
+                            var changedIDs = Set<String>()
+                            if self.messageReceiptsByID[receipt.messageID] != receipt {
+                                changedIDs.insert(receipt.messageID)
+                            }
+                            self.messageReceiptsByID[receipt.messageID] = receipt
+                            self.rebuildMessageMetadata(for: changedIDs, notify: true)
+                        }
+
+                    case .remove(let messageID):
+                        do {
+                            try self.localMessageStore.removeReceipt(chatID: chatID, messageID: messageID)
+                        } catch {
+                            self.emitError(error)
+                        }
+
+                        self.notifyOnMain {
+                            var changedIDs = Set<String>()
+                            if self.messageReceiptsByID.removeValue(forKey: messageID) != nil {
+                                changedIDs.insert(messageID)
+                            }
+                            self.rebuildMessageMetadata(for: changedIDs, notify: true)
+                        }
+                    }
                 }
             },
             onCancelled: { [weak self] error in
@@ -292,71 +299,98 @@ extension ChatViewModel {
 
         messageReactionsObserver = firebase.observeMessageReactions(
             chatID: chatID,
-            onChange: { [weak self] rows in
+            onEvent: { [weak self] event in
                 guard let self else { return }
-                self.notifyOnMain {
-                    var grouped: [String: [MessageReaction]] = [:]
-                    for row in rows {
-                        do {
-                            guard let partnerUserID = self.partnerUserID else { continue }
-                            let decrypted = try self.encryption.decrypt(row.envelope.ciphertext, from: partnerUserID)
-                            guard let payload = try JSONSerialization.jsonObject(with: decrypted) as? [String: Any],
-                                  let emoji = payload["emoji"] as? String else {
-                                continue
-                            }
-                            let updatedAtRaw = payload["updatedAt"] as? TimeInterval ?? row.envelope.updatedAt
-                            let reaction = MessageReaction(
-                                messageID: row.messageID,
-                                reactorUID: row.reactorUID,
-                                emoji: emoji,
-                                updatedAt: Date(timeIntervalSince1970: updatedAtRaw)
-                            )
-                            grouped[row.messageID, default: []].append(reaction)
-
-                            try self.localMessageStore.upsertReaction(
-                                chatID: chatID,
-                                messageID: row.messageID,
-                                reactorUID: row.reactorUID,
-                                emoji: emoji,
-                                updatedAt: updatedAtRaw
-                            )
-                        } catch {
-                            self.emitError(error)
-                        }
+                self.messageMetadataProcessingQueue.async { [weak self] in
+                    guard let self else { return }
+                    enum ProcessedReactionEvent {
+                        case replace(messageID: String, reactions: [MessageReaction])
+                        case removeMessage(messageID: String)
                     }
 
-                    let previousKeys = Set(self.messageReactionsByMessageID.keys)
-                    let incomingKeys = Set(grouped.keys)
-                    var changedIDs = previousKeys.symmetricDifference(incomingKeys)
-                    let oldMap = self.messageReactionsByMessageID
-                    for messageID in incomingKeys.intersection(previousKeys) {
-                        let oldValue = self.messageReactionsByMessageID[messageID]?.sorted(by: { $0.reactorUID < $1.reactorUID })
-                        let newValue = grouped[messageID]?.sorted(by: { $0.reactorUID < $1.reactorUID })
-                        if oldValue != newValue {
-                            changedIDs.insert(messageID)
-                        }
-                    }
+                    let processed: ProcessedReactionEvent
+                    switch event {
+                    case .replace(let messageID, let reactors):
+                        guard let partnerUserID = self.partnerUserID else { return }
+                        var nextReactions: [MessageReaction] = []
 
-                    self.messageReactionsByMessageID = grouped
-
-                    for messageID in changedIDs {
-                        let oldReactors = Set((oldMap[messageID] ?? []).map(\.reactorUID))
-                        let newReactors = Set((grouped[messageID] ?? []).map(\.reactorUID))
-                        let removedReactors = oldReactors.subtracting(newReactors)
-                        for reactorUID in removedReactors {
+                        for reactor in reactors {
                             do {
-                                try self.localMessageStore.removeReaction(
-                                    chatID: chatID,
-                                    messageID: messageID,
-                                    reactorUID: reactorUID
+                                let decrypted = try self.encryption.decrypt(reactor.envelope.ciphertext, from: partnerUserID)
+                                guard let payload = try JSONSerialization.jsonObject(with: decrypted) as? [String: Any],
+                                      let emoji = payload["emoji"] as? String else {
+                                    continue
+                                }
+                                let updatedAtRaw = payload["updatedAt"] as? TimeInterval ?? reactor.envelope.updatedAt
+                                nextReactions.append(
+                                    MessageReaction(
+                                        messageID: messageID,
+                                        reactorUID: reactor.reactorUID,
+                                        emoji: emoji,
+                                        updatedAt: Date(timeIntervalSince1970: updatedAtRaw)
+                                    )
                                 )
                             } catch {
                                 self.emitError(error)
                             }
                         }
+
+                        nextReactions.sort {
+                            if $0.updatedAt == $1.updatedAt {
+                                return $0.reactorUID < $1.reactorUID
+                            }
+                            return $0.updatedAt < $1.updatedAt
+                        }
+
+                        do {
+                            try self.localMessageStore.removeReactions(chatID: chatID, messageID: messageID)
+                            for reaction in nextReactions {
+                                try self.localMessageStore.upsertReaction(
+                                    chatID: chatID,
+                                    messageID: messageID,
+                                    reactorUID: reaction.reactorUID,
+                                    emoji: reaction.emoji,
+                                    updatedAt: reaction.updatedAt.timeIntervalSince1970
+                                )
+                            }
+                        } catch {
+                            self.emitError(error)
+                        }
+
+                        processed = .replace(messageID: messageID, reactions: nextReactions)
+
+                    case .removeMessage(let messageID):
+                        do {
+                            try self.localMessageStore.removeReactions(chatID: chatID, messageID: messageID)
+                        } catch {
+                            self.emitError(error)
+                        }
+                        processed = .removeMessage(messageID: messageID)
                     }
 
-                    self.rebuildMessageMetadata(for: changedIDs, notify: true)
+                    self.notifyOnMain {
+                        var changedIDs = Set<String>()
+                        switch processed {
+                        case .replace(let messageID, let nextReactions):
+                            let previous = (self.messageReactionsByMessageID[messageID] ?? []).sorted {
+                                if $0.updatedAt == $1.updatedAt {
+                                    return $0.reactorUID < $1.reactorUID
+                                }
+                                return $0.updatedAt < $1.updatedAt
+                            }
+                            if previous != nextReactions {
+                                changedIDs.insert(messageID)
+                            }
+                            self.messageReactionsByMessageID[messageID] = nextReactions
+
+                        case .removeMessage(let messageID):
+                            if self.messageReactionsByMessageID.removeValue(forKey: messageID) != nil {
+                                changedIDs.insert(messageID)
+                            }
+                        }
+
+                        self.rebuildMessageMetadata(for: changedIDs, notify: true)
+                    }
                 }
             },
             onCancelled: { [weak self] error in
@@ -421,7 +455,7 @@ extension ChatViewModel {
 
         var changedIDs = Set<String>()
         for messageID in messageIDs {
-            guard let message = messages.first(where: { $0.id == messageID }) else {
+            guard let message = messageByID[messageID] else {
                 if messageMetaByID.removeValue(forKey: messageID) != nil {
                     changedIDs.insert(messageID)
                 }
@@ -539,6 +573,10 @@ extension ChatViewModel {
         messages[index]
     }
 
+    func message(for id: String) -> ChatMessage? {
+        messageByID[id]
+    }
+
     func isFromCurrentUser(_ message: ChatMessage) -> Bool {
         message.senderID == currentUserID
     }
@@ -550,6 +588,45 @@ extension ChatViewModel {
     }
 
     func bootstrapRecentMessagesAndListen(chatID: String, currentUserID: String, partnerUserID: String) {
+        let localMessageCount = (try? localMessageStore.count(chatID: chatID)) ?? messages.count
+        let syncState = try? localMessageStore.fetchSyncState(chatID: chatID)
+        let decision = MessageSyncPolicy.shouldBootstrap(
+            syncState: syncState,
+            localMessageCount: localMessageCount,
+            currentSchemaVersion: Migrations.schemaVersion,
+            currentAppVersion: currentAppVersionString(),
+            featureEnabled: AppConfiguration.FeatureFlags.enableConditionalBootstrap
+        )
+
+        let startingCursor = latestSyncedCursor ?? currentLatestCursorFromMessages()
+        latestSyncedCursor = startingCursor
+
+        messageObserver = firebase.observeEncryptedMessages(
+            chatID: chatID,
+            startingAt: startingCursor.map { TimeInterval($0.timestampMs) / 1000 },
+            startingAfterMessageID: startingCursor?.messageID,
+            onMessage: { [weak self] envelope in
+                self?.handleIncomingEnvelope(envelope)
+            },
+            onCancelled: { [weak self] error in
+                self?.handleObserverCancellation(error)
+            }
+        )
+
+        guard case .bootstrap(let reason) = decision else {
+            return
+        }
+
+        do {
+            try localMessageStore.markBootstrapStarted(chatID: chatID, appVersion: currentAppVersionString())
+        } catch {
+            emitError(error)
+        }
+
+        #if DEBUG
+        print("Cloud bootstrap tetiklendi: \(reason)")
+        #endif
+
         messageSyncService.syncCloudBackfillIfNeeded { [weak self] result in
             guard let self else { return }
             guard self.activeChatID == chatID else { return }
@@ -557,52 +634,99 @@ extension ChatViewModel {
             switch result {
             case .success(let envelopes):
                 self.consumeInitialMessageBatch(envelopes, currentUserID: currentUserID, partnerUserID: partnerUserID)
-                let latestCloudSentAt = envelopes.last?.sentAt ?? 0
-                let latestLocalSentAt = self.messages.last?.sentAt.timeIntervalSince1970 ?? 0
-                let startAt = max(latestCloudSentAt, latestLocalSentAt)
-                self.messageObserver = self.firebase.observeEncryptedMessages(
-                    chatID: chatID,
-                    startingAt: startAt,
-                    onMessage: { [weak self] envelope in
-                        self?.handleIncomingEnvelope(envelope)
-                    },
-                    onCancelled: { [weak self] error in
-                        self?.handleObserverCancellation(error)
-                    }
-                )
+                let latestCursor = self.currentLatestCursorFromMessages()
+                self.latestSyncedCursor = latestCursor
+                do {
+                    try self.localMessageStore.markBootstrapCompleted(
+                        chatID: chatID,
+                        cursor: latestCursor,
+                        appVersion: self.currentAppVersionString()
+                    )
+                    self.lastPersistedBootstrapCursor = latestCursor
+                    self.pendingBootstrapPersistCursor = latestCursor
+                } catch {
+                    self.emitError(error)
+                }
 
             case .failure(let error):
                 self.emitError(error)
-                self.messageObserver = self.firebase.observeEncryptedMessages(
-                    chatID: chatID,
-                    startingAt: nil,
-                    onMessage: { [weak self] envelope in
-                        self?.handleIncomingEnvelope(envelope)
-                    },
-                    onCancelled: { [weak self] error in
-                        self?.handleObserverCancellation(error)
-                    }
-                )
+                do {
+                    try self.localMessageStore.markGapDetected(
+                        chatID: chatID,
+                        gapDetected: true,
+                        appVersion: self.currentAppVersionString()
+                    )
+                } catch {
+                    self.emitError(error)
+                }
             }
         }
     }
 
     func loadInitialMessagesFromLocal() {
         guard AppConfiguration.FeatureFlags.localFirstEphemeralMessaging else { return }
+        guard let currentUserID, let partnerUserID, let chatID = activeChatID else { return }
 
-        do {
-            let localMessages = try messageSyncService.loadInitialFromLocal()
-            resetMessageState(notify: false)
-            localMessages.forEach { _ = appendMessageIfNeeded($0, notify: false) }
-            hydrateMessageMetadataFromLocal(for: localMessages.map(\.id))
-            rebuildMessageMetadata(for: Set(localMessages.map(\.id)), notify: true)
-            hasReachedHistoryStart = localMessages.count < Int(AppConfiguration.MessageQueue.localPageSize)
-
-            notifyOnMain {
-                self.onMessagesUpdated?()
+        if AppConfiguration.FeatureFlags.enableHybridSnapshotLaunch,
+           let snapshotModels = ChatLaunchSnapshotCache.shared.load(ownerUID: currentUserID, chatID: chatID),
+           !snapshotModels.isEmpty {
+            let snapshotMessages = snapshotModels.compactMap {
+                self.chatMessageFromSnapshot(
+                    $0,
+                    currentUserID: currentUserID,
+                    partnerUserID: partnerUserID
+                )
             }
-        } catch {
-            emitError(error)
+            if !snapshotMessages.isEmpty {
+                resetMessageState(notify: false)
+                snapshotMessages.forEach { _ = appendMessageIfNeeded($0, notify: false) }
+                rebuildMessageMetadata(for: Set(snapshotMessages.map(\.id)), notify: true)
+                notifyOnMain {
+                    self.onMessagesUpdated?()
+                    self.onMessageListDelta?(
+                        MessageListDelta(kind: .initial, changedMessageIDs: Set(snapshotMessages.map(\.id)))
+                    )
+                    ChatPerfLogger.mark("t1_snapshotApplied")
+                    ChatPerfLogger.logDelta(from: "t0_viewDidLoad", to: "t1_snapshotApplied", context: "launch_snapshot")
+                    ChatPerfLogger.mark("launch_t3_chat_first_local_render")
+                    ChatPerfLogger.logDelta(
+                        from: "launch_t0_app_start",
+                        to: "launch_t3_chat_first_local_render",
+                        context: "snapshot_first_render"
+                    )
+                }
+            }
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            do {
+                let localMessages = try self.messageSyncService.loadInitialFromLocal()
+                self.notifyOnMain {
+                    guard self.activeChatID == chatID else { return }
+                    self.resetMessageState(notify: false)
+                    localMessages.forEach { _ = self.appendMessageIfNeeded($0, notify: false) }
+                    self.hydrateMessageMetadataFromLocal(for: localMessages.map(\.id))
+                    self.rebuildMessageMetadata(for: Set(localMessages.map(\.id)), notify: true)
+                    self.hasReachedHistoryStart = localMessages.count < Int(AppConfiguration.MessageQueue.localPageSize)
+                    self.latestSyncedCursor = self.currentLatestCursorFromMessages()
+                    self.scheduleLaunchSnapshotSave()
+                    self.onMessagesUpdated?()
+                    self.onMessageListDelta?(
+                        MessageListDelta(kind: .initial, changedMessageIDs: Set(localMessages.map(\.id)))
+                    )
+                    ChatPerfLogger.mark("t2_dbRecentLoaded")
+                    ChatPerfLogger.logDelta(from: "t0_viewDidLoad", to: "t2_dbRecentLoaded", context: "local_db")
+                    ChatPerfLogger.mark("launch_t3_chat_first_local_render")
+                    ChatPerfLogger.logDelta(
+                        from: "launch_t0_app_start",
+                        to: "launch_t3_chat_first_local_render",
+                        context: "local_db_first_render"
+                    )
+                }
+            } catch {
+                self.emitError(error)
+            }
         }
     }
 
@@ -612,24 +736,27 @@ extension ChatViewModel {
         partnerUserID: String
     ) {
         var inserted = 0
+        var insertedMessageIDs = Set<String>()
         var latestIncomingValue: String?
 
         do {
-            let batchResults = try messageSyncService.consumeCloudEnvelopes(envelopes)
-            for (index, result) in batchResults.enumerated() {
-                if result.inserted, appendMessageIfNeeded(result.message, notify: false) {
-                    inserted += 1
-                    if envelopes[index].senderID != currentUserID {
-                        latestIncomingValue = result.message.value
+                let batchResults = try messageSyncService.consumeCloudEnvelopes(envelopes)
+                for (index, result) in batchResults.enumerated() {
+                    if result.inserted, appendMessageIfNeeded(result.message, notify: false) {
+                        inserted += 1
+                        insertedMessageIDs.insert(result.message.id)
+                        if envelopes[index].senderID != currentUserID {
+                            latestIncomingValue = result.message.value
+                        }
                     }
                 }
-            }
         } catch {
             for envelope in envelopes {
                 do {
                     let syncResult = try messageSyncService.consumeCloudEnvelope(envelope)
                     if syncResult.inserted, appendMessageIfNeeded(syncResult.message, notify: false) {
                         inserted += 1
+                        insertedMessageIDs.insert(syncResult.message.id)
                         if envelope.senderID != currentUserID {
                             latestIncomingValue = syncResult.message.value
                         }
@@ -641,6 +768,7 @@ extension ChatViewModel {
                            recovered.inserted,
                            appendMessageIfNeeded(recovered.message, notify: false) {
                             inserted += 1
+                            insertedMessageIDs.insert(recovered.message.id)
                             if envelope.senderID != currentUserID {
                                 latestIncomingValue = recovered.message.value
                             }
@@ -662,11 +790,11 @@ extension ChatViewModel {
         }
 
         guard inserted > 0 else { return }
-        let allIDs = Set(messages.map(\.id))
-        hydrateMessageMetadataFromLocal(for: Array(allIDs))
-        rebuildMessageMetadata(for: allIDs, notify: true)
+        hydrateMessageMetadataFromLocal(for: Array(insertedMessageIDs))
+        rebuildMessageMetadata(for: insertedMessageIDs, notify: true)
         notifyOnMain {
             self.onMessagesUpdated?()
+            self.onMessageListDelta?(MessageListDelta(kind: .initial, changedMessageIDs: insertedMessageIDs))
         }
     }
 
@@ -683,6 +811,8 @@ extension ChatViewModel {
             if inserted && envelope.senderID != currentUserID {
                 persistWidgetLatestMessage(syncResult.message.value)
                 LiveActivityManager.shared.update(text: syncResult.message.value, mood: latestPartnerMoodTitle)
+                ChatPerfLogger.mark("t3_firstDeltaApplied")
+                ChatPerfLogger.logDelta(from: "t0_viewDidLoad", to: "t3_firstDeltaApplied", context: "rtdb_delta")
             }
         } catch {
             guard !isRecoverablePartnerPayloadError(error) else {
@@ -715,6 +845,7 @@ extension ChatViewModel {
         guard let currentUserID,
               let partnerUserID,
               let oldestLoadedSentAt,
+              let oldestLoadedMessageID,
               !isLoadingHistory,
               !hasReachedHistoryStart,
               state == .ready else {
@@ -728,11 +859,13 @@ extension ChatViewModel {
         let pageSize = AppConfiguration.MessageQueue.localPageSize
 
         var localInserted = 0
+        var localInsertedIDs = Set<String>()
         do {
             let localMessages = try messageSyncService.loadOlderFromLocal(beforeSentAt: oldestLoadedSentAt)
             for message in localMessages {
                 if appendMessageIfNeeded(message, notify: false) {
                     localInserted += 1
+                    localInsertedIDs.insert(message.id)
                 }
             }
         } catch {
@@ -741,15 +874,21 @@ extension ChatViewModel {
 
         if localInserted > 0 {
             isLoadingHistory = false
-            hydrateMessageMetadataFromLocal(for: messages.map(\.id))
-            rebuildMessageMetadata(for: Set(messages.map(\.id)), notify: true)
+            hydrateMessageMetadataFromLocal(for: Array(localInsertedIDs))
+            rebuildMessageMetadata(for: localInsertedIDs, notify: true)
             notifyOnMain {
                 self.onMessagesPrepended?(localInserted)
+                self.onMessageListDelta?(MessageListDelta(kind: .prepend, changedMessageIDs: localInsertedIDs))
             }
             return
         }
 
-        firebase.fetchOlderEncryptedMessages(chatID: chatID, endingAtOrBefore: oldestLoadedSentAt, limit: pageSize) { [weak self] result in
+        let cursor = ChatSyncCursor(
+            timestampMs: Int64(oldestLoadedSentAt * 1000),
+            messageID: oldestLoadedMessageID
+        )
+
+        firebase.fetchOlderEncryptedMessages(chatID: chatID, before: cursor, limit: pageSize) { [weak self] result in
             guard let self else { return }
             guard self.activeChatID == chatID else { return }
             self.isLoadingHistory = false
@@ -760,11 +899,13 @@ extension ChatViewModel {
 
             case .success(let envelopes):
                 var inserted = 0
+                var insertedMessageIDs = Set<String>()
                 do {
                     let batchResults = try self.messageSyncService.consumeCloudEnvelopes(envelopes)
                     for result in batchResults where result.inserted {
                         if self.appendMessageIfNeeded(result.message, notify: false) {
                             inserted += 1
+                            insertedMessageIDs.insert(result.message.id)
                         }
                     }
                 } catch {
@@ -773,6 +914,7 @@ extension ChatViewModel {
                             let syncResult = try self.messageSyncService.consumeCloudEnvelope(envelope)
                             if syncResult.inserted, self.appendMessageIfNeeded(syncResult.message, notify: false) {
                                 inserted += 1
+                                insertedMessageIDs.insert(syncResult.message.id)
                             }
                         } catch {
                             guard !self.isRecoverablePartnerPayloadError(error) else {
@@ -788,10 +930,11 @@ extension ChatViewModel {
                 self.hasReachedHistoryStart = envelopes.count < Int(pageSize + 1) || inserted == 0
 
                 guard inserted > 0 else { return }
-                self.hydrateMessageMetadataFromLocal(for: self.messages.map(\.id))
-                self.rebuildMessageMetadata(for: Set(self.messages.map(\.id)), notify: true)
+                self.hydrateMessageMetadataFromLocal(for: Array(insertedMessageIDs))
+                self.rebuildMessageMetadata(for: insertedMessageIDs, notify: true)
                 self.notifyOnMain {
                     self.onMessagesPrepended?(inserted)
+                    self.onMessageListDelta?(MessageListDelta(kind: .prepend, changedMessageIDs: insertedMessageIDs))
                 }
             }
         }
@@ -815,6 +958,8 @@ extension ChatViewModel {
             isSecret: isSecret,
             sentAt: Date().timeIntervalSince1970
         )
+        let sendPerfID = UUID().uuidString
+        ChatPerfLogger.mark("send_t0_\(sendPerfID)")
 
         messageSyncService.send(payload: payload) { [weak self] result in
             guard let self else { return }
@@ -824,6 +969,12 @@ extension ChatViewModel {
                 self.outgoingUploadStateByMessageID[optimisticMessage.id] = .pendingUpload
                 self.hydrateMessageMetadataFromLocal(for: [optimisticMessage.id])
                 self.rebuildMessageMetadata(for: [optimisticMessage.id], notify: true)
+                ChatPerfLogger.mark("send_t1_\(sendPerfID)")
+                ChatPerfLogger.logDelta(
+                    from: "send_t0_\(sendPerfID)",
+                    to: "send_t1_\(sendPerfID)",
+                    context: "send_to_render_latency_ms"
+                )
             case .failure(let error):
                 self.emitError(error)
             }
@@ -838,18 +989,30 @@ extension ChatViewModel {
 
         loadedMessageIDs.insert(message.id)
 
-        if let last = messages.last, last.sentAt <= message.sentAt {
+        let insertionIndex: Int
+        if let last = messages.last,
+           (last.sentAt, last.id) <= (message.sentAt, message.id) {
+            insertionIndex = messages.endIndex
             messages.append(message)
         } else {
-            let insertionIndex = messages.firstIndex(where: { $0.sentAt > message.sentAt }) ?? messages.endIndex
+            insertionIndex = messages.firstIndex {
+                ($0.sentAt, $0.id) > (message.sentAt, message.id)
+            } ?? messages.endIndex
             messages.insert(message, at: insertionIndex)
         }
+        messageByID[message.id] = message
         _ = trimMessagesIfNeeded(keepingLast: AppConfiguration.ChatPerformance.maxInMemoryMessages)
         oldestLoadedSentAt = messages.first?.sentAt.timeIntervalSince1970
+        oldestLoadedMessageID = messages.first?.id
+        latestSyncedCursor = currentLatestCursorFromMessages()
+        scheduleBootstrapStatePersistIfNeeded()
+        scheduleLaunchSnapshotSave()
 
         if notify {
+            let deltaKind: MessageListDeltaKind = insertionIndex == messages.count - 1 ? .append : .prepend
             notifyOnMain {
                 self.onMessagesUpdated?()
+                self.onMessageListDelta?(MessageListDelta(kind: deltaKind, changedMessageIDs: [message.id]))
             }
         }
         return true
@@ -857,14 +1020,21 @@ extension ChatViewModel {
 
     func resetMessageState(notify: Bool) {
         messages.removeAll(keepingCapacity: true)
+        messageByID.removeAll(keepingCapacity: true)
         loadedMessageIDs.removeAll(keepingCapacity: true)
         oldestLoadedSentAt = nil
+        oldestLoadedMessageID = nil
+        latestSyncedCursor = nil
         isLoadingHistory = false
         hasReachedHistoryStart = false
         messageMetaByID.removeAll(keepingCapacity: true)
         messageReceiptsByID.removeAll(keepingCapacity: true)
         messageReactionsByMessageID.removeAll(keepingCapacity: true)
         outgoingUploadStateByMessageID.removeAll(keepingCapacity: true)
+        bootstrapPersistWorkItem?.cancel()
+        bootstrapPersistWorkItem = nil
+        pendingBootstrapPersistCursor = nil
+        lastPersistedBootstrapCursor = nil
         pendingReadReceiptMessageIDs.removeAll(keepingCapacity: true)
         readReceiptWorkItem?.cancel()
         readReceiptWorkItem = nil
@@ -872,6 +1042,7 @@ extension ChatViewModel {
         guard notify else { return }
         notifyOnMain {
             self.onMessagesUpdated?()
+            self.onMessageListDelta?(MessageListDelta(kind: .initial, changedMessageIDs: []))
         }
     }
 
@@ -884,10 +1055,111 @@ extension ChatViewModel {
 
         for message in removedMessages {
             loadedMessageIDs.remove(message.id)
+            messageByID.removeValue(forKey: message.id)
         }
 
         oldestLoadedSentAt = messages.first?.sentAt.timeIntervalSince1970
+        oldestLoadedMessageID = messages.first?.id
+        latestSyncedCursor = currentLatestCursorFromMessages()
         return true
+    }
+
+    func flushLaunchSnapshotIfPossible() {
+        guard let currentUserID, let activeChatID else { return }
+        let models = messages.suffix(60).map(snapshotModel)
+        ChatLaunchSnapshotCache.shared.flushPendingSave(
+            ownerUID: currentUserID,
+            chatID: activeChatID,
+            messages: models
+        )
+    }
+
+    private func scheduleLaunchSnapshotSave() {
+        guard let currentUserID, let activeChatID else { return }
+        let models = messages.suffix(60).map(snapshotModel)
+        ChatLaunchSnapshotCache.shared.scheduleSave(
+            ownerUID: currentUserID,
+            chatID: activeChatID,
+            messages: models
+        )
+    }
+
+    private func snapshotModel(from message: ChatMessage) -> MessageUIModel {
+        MessageUIModel(
+            id: message.id,
+            senderID: message.senderID,
+            recipientID: message.recipientID,
+            text: message.value,
+            timestampMs: Int64(message.sentAt.timeIntervalSince1970 * 1000),
+            payloadType: message.type.rawValue,
+            isSecret: message.isSecret,
+            status: .unknown
+        )
+    }
+
+    private func chatMessageFromSnapshot(
+        _ model: MessageUIModel,
+        currentUserID: String,
+        partnerUserID: String
+    ) -> ChatMessage? {
+        guard !model.id.isEmpty else { return nil }
+        let payloadType = model.payloadType.flatMap(ChatPayloadType.init(rawValue:)) ?? .text
+        let recipientID = model.recipientID ?? (model.senderID == currentUserID ? partnerUserID : currentUserID)
+        return ChatMessage(
+            id: model.id,
+            senderID: model.senderID,
+            recipientID: recipientID,
+            sentAt: Date(timeIntervalSince1970: TimeInterval(model.timestampMs) / 1000),
+            type: payloadType,
+            value: model.text,
+            isSecret: model.isSecret ?? false
+        )
+    }
+
+    private func currentLatestCursorFromMessages() -> ChatSyncCursor? {
+        guard let latestMessage = messages.last else { return nil }
+        return ChatSyncCursor(
+            timestampMs: Int64(latestMessage.sentAt.timeIntervalSince1970 * 1000),
+            messageID: latestMessage.id
+        )
+    }
+
+    private func currentAppVersionString() -> String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
+        return "\(version)(\(build))"
+    }
+
+    private func scheduleBootstrapStatePersistIfNeeded() {
+        guard activeChatID != nil else { return }
+        let cursor = latestSyncedCursor
+        guard cursor != lastPersistedBootstrapCursor else { return }
+
+        pendingBootstrapPersistCursor = cursor
+        bootstrapPersistWorkItem?.cancel()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard let chatID = self.activeChatID else { return }
+            let cursorToPersist = self.pendingBootstrapPersistCursor
+            guard cursorToPersist != self.lastPersistedBootstrapCursor else { return }
+            do {
+                try self.localMessageStore.markBootstrapCompleted(
+                    chatID: chatID,
+                    cursor: cursorToPersist,
+                    appVersion: self.currentAppVersionString()
+                )
+                self.lastPersistedBootstrapCursor = cursorToPersist
+            } catch {
+                self.emitError(error)
+            }
+        }
+
+        bootstrapPersistWorkItem = workItem
+        DispatchQueue.global(qos: .utility).asyncAfter(
+            deadline: .now() + bootstrapPersistDebounceInterval,
+            execute: workItem
+        )
     }
 
     func attemptSharedKeyRecoveryIfPossible(partnerUID: String) {

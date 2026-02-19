@@ -27,35 +27,31 @@ extension ChatViewController {
 
         viewModel.onMessagesUpdated = { [weak self] in
             guard let self else { return }
-            self.dismissReactionQuickPicker()
             guard self.isViewLoaded, self.view.window != nil else {
                 self.needsDeferredMessageReload = true
                 return
             }
 
+            let shouldStickToBottom = self.isNearBottom() || self.previousMessageCount == 0
             let currentCount = self.viewModel.messages.count
-            let previousCount = self.previousMessageCount
-            let canAppendAtBottom = currentCount > previousCount &&
-                previousCount > 0 &&
-                self.tableView.numberOfRows(inSection: 0) == previousCount &&
-                self.previousLastMessageID == self.viewModel.message(at: previousCount - 1).id
-
-            if canAppendAtBottom {
-                let newIndexPaths = (previousCount..<currentCount).map {
-                    IndexPath(row: $0, section: 0)
-                }
-                self.tableView.insertRows(at: newIndexPaths, with: .automatic)
+            if AppConfiguration.FeatureFlags.enableDeltaCoalescing {
+                self.scheduleCoalescedSnapshotApply(
+                    needsFullReload: true,
+                    shouldStickToBottom: shouldStickToBottom,
+                    currentCount: currentCount
+                )
             } else {
-                self.tableView.reloadData()
+                self.dismissReactionQuickPicker()
+                self.applyMessageSnapshot(animatingDifferences: true)
+                self.previousMessageCount = currentCount
+                self.previousLastMessageID = currentCount > 0 ? self.viewModel.message(at: currentCount - 1).id : nil
+                self.updateEmptyStateVisibility()
+                if shouldStickToBottom {
+                    self.scrollToBottom(animated: true)
+                }
+                self.scheduleVisibleGIFPlaybackUpdate(isEnabled: !(self.tableView.isDragging || self.tableView.isDecelerating), delay: 0.08)
+                self.markVisibleIncomingMessagesAsRead()
             }
-
-            self.previousMessageCount = currentCount
-            self.previousLastMessageID = currentCount > 0 ? self.viewModel.message(at: currentCount - 1).id : nil
-
-            self.updateEmptyStateVisibility()
-            self.scrollToBottom(animated: true)
-            self.scheduleVisibleGIFPlaybackUpdate(isEnabled: !(self.tableView.isDragging || self.tableView.isDecelerating), delay: 0.08)
-            self.markVisibleIncomingMessagesAsRead()
         }
 
         viewModel.onMessagesPrepended = { [weak self] insertedCount in
@@ -65,6 +61,12 @@ extension ChatViewController {
                 self.needsDeferredMessageReload = true
                 return
             }
+            self.coalescedSnapshotApplyWorkItem?.cancel()
+            self.coalescedSnapshotApplyWorkItem = nil
+            self.pendingSnapshotNeedsFullReload = false
+            self.pendingSnapshotShouldStickToBottom = false
+            self.pendingSnapshotCurrentCount = nil
+            self.pendingSnapshotReconfigureIDs.removeAll(keepingCapacity: true)
             self.prependMessagesAndPreservePosition(insertedCount: insertedCount)
             self.markVisibleIncomingMessagesAsRead()
         }
@@ -76,15 +78,14 @@ extension ChatViewController {
                 self.needsDeferredMessageReload = true
                 return
             }
-            guard self.tableView.numberOfRows(inSection: 0) == self.viewModel.numberOfMessages() else {
-                return
+            if AppConfiguration.FeatureFlags.enableDeltaCoalescing {
+                self.scheduleCoalescedSnapshotApply(
+                    needsFullReload: false,
+                    reconfigureMessageIDs: changedIDs
+                )
+            } else {
+                self.applyMessageSnapshot(animatingDifferences: false, reconfigureMessageIDs: changedIDs)
             }
-
-            let changedRows = self.viewModel.messages.enumerated().compactMap { index, message in
-                changedIDs.contains(message.id) ? IndexPath(row: index, section: 0) : nil
-            }
-            guard !changedRows.isEmpty else { return }
-            self.tableView.reloadRows(at: changedRows, with: .none)
         }
 
         viewModel.onPairingStatusUpdated = { [weak self] message in
@@ -167,6 +168,64 @@ extension ChatViewController {
 
     func updateEmptyStateVisibility() {
         emptyStateLabel.isHidden = viewModel.numberOfMessages() > 0
+    }
+
+    private func scheduleCoalescedSnapshotApply(
+        needsFullReload: Bool,
+        shouldStickToBottom: Bool = false,
+        currentCount: Int? = nil,
+        reconfigureMessageIDs: Set<String> = []
+    ) {
+        if needsFullReload {
+            dismissReactionQuickPicker()
+            pendingSnapshotNeedsFullReload = true
+            pendingSnapshotShouldStickToBottom = pendingSnapshotShouldStickToBottom || shouldStickToBottom
+            if let currentCount {
+                pendingSnapshotCurrentCount = currentCount
+            }
+        }
+        pendingSnapshotReconfigureIDs.formUnion(reconfigureMessageIDs)
+
+        guard coalescedSnapshotApplyWorkItem == nil else { return }
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.performCoalescedSnapshotApply()
+        }
+        coalescedSnapshotApplyWorkItem = workItem
+        DispatchQueue.main.async(execute: workItem)
+    }
+
+    private func performCoalescedSnapshotApply() {
+        coalescedSnapshotApplyWorkItem = nil
+
+        let needsFullReload = pendingSnapshotNeedsFullReload
+        let shouldStickToBottom = pendingSnapshotShouldStickToBottom
+        let currentCount = pendingSnapshotCurrentCount ?? viewModel.messages.count
+        let reconfigureIDs = pendingSnapshotReconfigureIDs
+
+        pendingSnapshotNeedsFullReload = false
+        pendingSnapshotShouldStickToBottom = false
+        pendingSnapshotCurrentCount = nil
+        pendingSnapshotReconfigureIDs.removeAll(keepingCapacity: true)
+
+        applyMessageSnapshot(
+            animatingDifferences: needsFullReload,
+            reconfigureMessageIDs: reconfigureIDs
+        ) { [weak self] in
+            guard let self else { return }
+            if needsFullReload {
+                self.previousMessageCount = currentCount
+                self.previousLastMessageID = currentCount > 0 ? self.viewModel.message(at: currentCount - 1).id : nil
+                self.updateEmptyStateVisibility()
+                if shouldStickToBottom {
+                    self.scrollToBottom(animated: true)
+                }
+                self.markVisibleIncomingMessagesAsRead()
+            }
+            self.scheduleVisibleGIFPlaybackUpdate(
+                isEnabled: !(self.tableView.isDragging || self.tableView.isDecelerating),
+                delay: 0.08
+            )
+        }
     }
 
     @discardableResult

@@ -176,7 +176,7 @@ extension FirebaseManager {
 
     func syncRecentCloudMessages(
         chatID: String,
-        limit: UInt = AppConfiguration.MessageQueue.initialCloudSyncWindow,
+        limit: UInt = AppConfiguration.Performance.bootstrapCloudWindow,
         completion: @escaping (Result<[EncryptedMessageEnvelope], Error>) -> Void
     ) {
         fetchRecentEncryptedMessages(chatID: chatID, limit: limit, completion: completion)
@@ -184,7 +184,7 @@ extension FirebaseManager {
 
     func fetchRecentEncryptedMessages(
         chatID: String,
-        limit: UInt = AppConfiguration.ChatPerformance.initialMessageWindow,
+        limit: UInt = AppConfiguration.Performance.initialLocalWindow,
         completion: @escaping (Result<[EncryptedMessageEnvelope], Error>) -> Void
     ) {
         #if canImport(FirebaseDatabase)
@@ -200,15 +200,20 @@ extension FirebaseManager {
             .child("messages")
 
         let query = ref
-            .queryOrdered(byChild: "sentAt")
+            .queryOrdered(byChild: "timestamp")
             .queryLimited(toLast: max(limit, 1))
 
-        query.observeSingleEvent(of: .value, with: { [weak self] snapshot in
-            guard let self else { return }
-            completion(.success(self.parseEnvelopes(from: snapshot)))
-        }, withCancel: { [weak self] error in
-            let mapped = self?.mapDatabaseError(error, path: path) ?? error
-            completion(.failure(mapped))
+        query.getData(completion: { [weak self] error, snapshot in
+            if let error {
+                let mapped = self?.mapDatabaseError(error, path: path) ?? error
+                completion(.failure(mapped))
+                return
+            }
+            guard let snapshot else {
+                completion(.success([]))
+                return
+            }
+            completion(.success(self?.parseEnvelopes(from: snapshot) ?? []))
         })
         #else
         completion(.failure(FirebaseManagerError.sdkMissing))
@@ -218,6 +223,19 @@ extension FirebaseManager {
     func fetchOlderEncryptedMessages(
         chatID: String,
         endingAtOrBefore sentAt: TimeInterval,
+        limit: UInt = AppConfiguration.ChatPerformance.historyPageSize,
+        completion: @escaping (Result<[EncryptedMessageEnvelope], Error>) -> Void
+    ) {
+        let cursor = ChatSyncCursor(
+            timestampMs: Int64(sentAt * 1000),
+            messageID: String(repeating: "z", count: 32)
+        )
+        fetchOlderEncryptedMessages(chatID: chatID, before: cursor, limit: limit, completion: completion)
+    }
+
+    func fetchOlderEncryptedMessages(
+        chatID: String,
+        before cursor: ChatSyncCursor,
         limit: UInt = AppConfiguration.ChatPerformance.historyPageSize,
         completion: @escaping (Result<[EncryptedMessageEnvelope], Error>) -> Void
     ) {
@@ -234,17 +252,34 @@ extension FirebaseManager {
             .child(chatID)
             .child("messages")
 
-        let query = ref
-            .queryOrdered(byChild: "sentAt")
-            .queryEnding(atValue: sentAt)
-            .queryLimited(toLast: pageLimit)
+        let cursorTimestampSeconds = TimeInterval(cursor.timestampMs) / 1000
+        let orderedQuery = ref.queryOrdered(byChild: "timestamp")
+        let query: DatabaseQuery
+        if cursor.messageID.isEmpty {
+            query = orderedQuery
+                .queryEnding(atValue: cursorTimestampSeconds)
+                .queryLimited(toLast: pageLimit)
+        } else {
+            query = orderedQuery
+                .queryEnding(atValue: cursorTimestampSeconds, childKey: cursor.messageID)
+                .queryLimited(toLast: pageLimit)
+        }
 
-        query.observeSingleEvent(of: .value, with: { [weak self] snapshot in
-            guard let self else { return }
-            completion(.success(self.parseEnvelopes(from: snapshot)))
-        }, withCancel: { [weak self] error in
-            let mapped = self?.mapDatabaseError(error, path: path) ?? error
-            completion(.failure(mapped))
+        query.getData(completion: { [weak self] error, snapshot in
+            if let error {
+                let mapped = self?.mapDatabaseError(error, path: path) ?? error
+                completion(.failure(mapped))
+                return
+            }
+            guard let snapshot else {
+                completion(.success([]))
+                return
+            }
+            let parsed = self?.parseEnvelopes(from: snapshot) ?? []
+            let filtered = parsed.filter { envelope in
+                !(envelope.id == cursor.messageID && Int64(envelope.timestamp * 1000) == cursor.timestampMs)
+            }
+            completion(.success(filtered))
         })
         #else
         completion(.failure(FirebaseManagerError.sdkMissing))
@@ -254,6 +289,7 @@ extension FirebaseManager {
     func observeEncryptedMessages(
         chatID: String,
         startingAt sentAt: TimeInterval? = nil,
+        startingAfterMessageID: String? = nil,
         onMessage: @escaping (EncryptedMessageEnvelope) -> Void,
         onCancelled: ((Error) -> Void)? = nil
     ) -> FirebaseObservationToken {
@@ -271,8 +307,17 @@ extension FirebaseManager {
             .child(chatID)
             .child("messages")
 
-        let baseQuery = ref.queryOrdered(byChild: "sentAt")
-        let query = sentAt.map { baseQuery.queryStarting(atValue: $0) } ?? baseQuery
+        let baseQuery = ref.queryOrdered(byChild: "timestamp")
+        let query: DatabaseQuery
+        if let sentAt {
+            if let startingAfterMessageID {
+                query = baseQuery.queryStarting(atValue: sentAt, childKey: startingAfterMessageID)
+            } else {
+                query = baseQuery.queryStarting(atValue: sentAt)
+            }
+        } else {
+            query = baseQuery
+        }
 
         let handle = query.observe(.childAdded, with: { snapshot in
             guard let envelope = EncryptedMessageEnvelope(snapshotValue: snapshot.value as Any) else { return }
@@ -464,7 +509,7 @@ extension FirebaseManager {
 
     func observeMessageReceipts(
         chatID: String,
-        onChange: @escaping ([MessageReceipt]) -> Void,
+        onEvent: @escaping (MessageReceiptDeltaEvent) -> Void,
         onCancelled: ((Error) -> Void)? = nil
     ) -> FirebaseObservationToken {
         #if canImport(FirebaseDatabase)
@@ -481,17 +526,7 @@ extension FirebaseManager {
             .child("messageReceipts")
         let path = "\(AppConfiguration.DatabasePath.events)/\(chatID)/messageReceipts"
 
-        let handle = ref.observe(.value, with: { snapshot in
-            var receipts: [MessageReceipt] = []
-            for case let child as DataSnapshot in snapshot.children {
-                guard let dictionary = child.value as? [String: Any],
-                      let receipt = MessageReceipt(messageID: child.key, dictionary: dictionary) else {
-                    continue
-                }
-                receipts.append(receipt)
-            }
-            onChange(receipts)
-        }, withCancel: { [weak self] error in
+        let cancellationHandler: (Error) -> Void = { [weak self] error in
             let mapped = self?.mapDatabaseError(error, path: path) ?? error
             #if DEBUG
             if self?.shouldLogObserverCancellation(mapped) ?? true {
@@ -499,10 +534,32 @@ extension FirebaseManager {
             }
             #endif
             onCancelled?(mapped)
-        })
+        }
+
+        let childAddedHandle = ref.observe(.childAdded, with: { snapshot in
+            guard let dictionary = snapshot.value as? [String: Any],
+                  let receipt = MessageReceipt(messageID: snapshot.key, dictionary: dictionary) else {
+                return
+            }
+            onEvent(.upsert(receipt))
+        }, withCancel: cancellationHandler)
+
+        let childChangedHandle = ref.observe(.childChanged, with: { snapshot in
+            guard let dictionary = snapshot.value as? [String: Any],
+                  let receipt = MessageReceipt(messageID: snapshot.key, dictionary: dictionary) else {
+                return
+            }
+            onEvent(.upsert(receipt))
+        }, withCancel: cancellationHandler)
+
+        let childRemovedHandle = ref.observe(.childRemoved, with: { snapshot in
+            onEvent(.remove(messageID: snapshot.key))
+        }, withCancel: cancellationHandler)
 
         return FirebaseObservationToken {
-            ref.removeObserver(withHandle: handle)
+            ref.removeObserver(withHandle: childAddedHandle)
+            ref.removeObserver(withHandle: childChangedHandle)
+            ref.removeObserver(withHandle: childRemovedHandle)
         }
         #else
         return FirebaseObservationToken {}
@@ -511,7 +568,7 @@ extension FirebaseManager {
 
     func observeMessageReactions(
         chatID: String,
-        onChange: @escaping ([(messageID: String, reactorUID: String, envelope: MessageReactionEnvelope)]) -> Void,
+        onEvent: @escaping (MessageReactionDeltaEvent) -> Void,
         onCancelled: ((Error) -> Void)? = nil
     ) -> FirebaseObservationToken {
         #if canImport(FirebaseDatabase)
@@ -528,22 +585,7 @@ extension FirebaseManager {
             .child("messageReactions")
         let path = "\(AppConfiguration.DatabasePath.events)/\(chatID)/messageReactions"
 
-        let handle = ref.observe(.value, with: { snapshot in
-            var rows: [(messageID: String, reactorUID: String, envelope: MessageReactionEnvelope)] = []
-            for case let messageSnapshot as DataSnapshot in snapshot.children {
-                for case let reactorSnapshot as DataSnapshot in messageSnapshot.children {
-                    guard let envelope = MessageReactionEnvelope(snapshotValue: reactorSnapshot.value as Any) else {
-                        continue
-                    }
-                    rows.append((
-                        messageID: messageSnapshot.key,
-                        reactorUID: reactorSnapshot.key,
-                        envelope: envelope
-                    ))
-                }
-            }
-            onChange(rows)
-        }, withCancel: { [weak self] error in
+        let cancellationHandler: (Error) -> Void = { [weak self] error in
             let mapped = self?.mapDatabaseError(error, path: path) ?? error
             #if DEBUG
             if self?.shouldLogObserverCancellation(mapped) ?? true {
@@ -551,13 +593,46 @@ extension FirebaseManager {
             }
             #endif
             onCancelled?(mapped)
-        })
+        }
+
+        let childAddedHandle = ref.observe(.childAdded, with: { [weak self] messageSnapshot in
+            guard let self else { return }
+            let reactors = self.parseReactionRows(messageSnapshot: messageSnapshot)
+            onEvent(.replace(messageID: messageSnapshot.key, reactors: reactors))
+        }, withCancel: cancellationHandler)
+
+        let childChangedHandle = ref.observe(.childChanged, with: { [weak self] messageSnapshot in
+            guard let self else { return }
+            let reactors = self.parseReactionRows(messageSnapshot: messageSnapshot)
+            onEvent(.replace(messageID: messageSnapshot.key, reactors: reactors))
+        }, withCancel: cancellationHandler)
+
+        let childRemovedHandle = ref.observe(.childRemoved, with: { messageSnapshot in
+            onEvent(.removeMessage(messageID: messageSnapshot.key))
+        }, withCancel: cancellationHandler)
 
         return FirebaseObservationToken {
-            ref.removeObserver(withHandle: handle)
+            ref.removeObserver(withHandle: childAddedHandle)
+            ref.removeObserver(withHandle: childChangedHandle)
+            ref.removeObserver(withHandle: childRemovedHandle)
         }
         #else
         return FirebaseObservationToken {}
         #endif
     }
+
+    #if canImport(FirebaseDatabase)
+    private func parseReactionRows(
+        messageSnapshot: DataSnapshot
+    ) -> [(reactorUID: String, envelope: MessageReactionEnvelope)] {
+        var rows: [(reactorUID: String, envelope: MessageReactionEnvelope)] = []
+        for case let reactorSnapshot as DataSnapshot in messageSnapshot.children {
+            guard let envelope = MessageReactionEnvelope(snapshotValue: reactorSnapshot.value as Any) else {
+                continue
+            }
+            rows.append((reactorUID: reactorSnapshot.key, envelope: envelope))
+        }
+        return rows
+    }
+    #endif
 }

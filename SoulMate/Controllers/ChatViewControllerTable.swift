@@ -7,33 +7,66 @@
 
 import UIKit
 
-extension ChatViewController: UITableViewDataSource {
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        viewModel.numberOfMessages()
+extension ChatViewController {
+    func configureMessageDataSource() {
+        messageDataSource = UITableViewDiffableDataSource<Int, String>(tableView: tableView) { [weak self] tableView, indexPath, messageID in
+            guard let self,
+                  let message = self.viewModel.message(for: messageID),
+                  let cell = tableView.dequeueReusableCell(
+                    withIdentifier: ChatMessageCell.reuseIdentifier,
+                    for: indexPath
+                  ) as? ChatMessageCell else {
+                return UITableViewCell()
+            }
+
+            let isOutgoing = self.viewModel.isFromCurrentUser(message)
+            let isSecretRevealed = self.revealedSecretMessageIDs.contains(message.id)
+            let metadata = self.viewModel.messageMeta(for: message.id)
+            cell.configure(
+                with: message,
+                isOutgoing: isOutgoing,
+                isSecretRevealed: isSecretRevealed,
+                meta: metadata
+            )
+            cell.onSecretRevealed = { [weak self] in
+                self?.markSecretMessageAsRevealed(message.id)
+            }
+            cell.onReactionLongPress = { [weak self] anchorView in
+                self?.presentReactionQuickPicker(for: message, sourceView: anchorView)
+            }
+            return cell
+        }
     }
 
-    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        guard let cell = tableView.dequeueReusableCell(withIdentifier: ChatMessageCell.reuseIdentifier, for: indexPath) as? ChatMessageCell else {
-            return UITableViewCell()
+    func applyMessageSnapshot(
+        animatingDifferences: Bool,
+        reconfigureMessageIDs: Set<String> = [],
+        completion: (() -> Void)? = nil
+    ) {
+        var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
+        snapshot.appendSections([0])
+        let allIDs = viewModel.messages.map(\.id)
+        snapshot.appendItems(allIDs, toSection: 0)
+
+        if !reconfigureMessageIDs.isEmpty {
+            let validIDs = reconfigureMessageIDs.filter { snapshot.indexOfItem($0) != nil }
+            if !validIDs.isEmpty {
+                if #available(iOS 15.0, *) {
+                    snapshot.reconfigureItems(Array(validIDs))
+                } else {
+                    snapshot.reloadItems(Array(validIDs))
+                }
+            }
         }
 
-        let message = viewModel.message(at: indexPath.row)
-        let isOutgoing = viewModel.isFromCurrentUser(message)
-        let isSecretRevealed = revealedSecretMessageIDs.contains(message.id)
-        let metadata = viewModel.messageMeta(for: message.id)
-        cell.configure(
-            with: message,
-            isOutgoing: isOutgoing,
-            isSecretRevealed: isSecretRevealed,
-            meta: metadata
-        )
-        cell.onSecretRevealed = { [weak self] in
-            self?.markSecretMessageAsRevealed(message.id)
-        }
-        cell.onReactionLongPress = { [weak self] anchorView in
-            self?.presentReactionQuickPicker(for: message, sourceView: anchorView)
-        }
-        return cell
+        let shouldAnimate = animatingDifferences && isVisible
+        messageDataSource?.apply(snapshot, animatingDifferences: shouldAnimate, completion: completion)
+    }
+
+    func isNearBottom(threshold: CGFloat = 36) -> Bool {
+        let contentHeight = tableView.contentSize.height
+        let visibleBottom = tableView.contentOffset.y + tableView.bounds.height - tableView.adjustedContentInset.bottom
+        return contentHeight - visibleBottom <= threshold
     }
 }
 
@@ -126,43 +159,30 @@ extension ChatViewController {
         }
         guard insertedCount > 0 else { return }
 
-        let previousContentHeight = tableView.contentSize.height
-        let previousOffsetY = tableView.contentOffset.y
+        let topVisibleIndexPath = tableView.indexPathsForVisibleRows?.min()
+        let topMessageID = topVisibleIndexPath.flatMap { messageDataSource?.itemIdentifier(for: $0) }
+        let topAnchorOffset: CGFloat = {
+            guard let topVisibleIndexPath else { return 0 }
+            return tableView.rectForRow(at: topVisibleIndexPath).minY - tableView.contentOffset.y
+        }()
 
-        let expectedPreviousRows = viewModel.numberOfMessages() - insertedCount
-        guard tableView.numberOfRows(inSection: 0) == expectedPreviousRows else {
-            tableView.reloadData()
-            tableView.layoutIfNeeded()
-            updateEmptyStateVisibility()
-            previousMessageCount = viewModel.numberOfMessages()
-            previousLastMessageID = previousMessageCount > 0 ? viewModel.message(at: previousMessageCount - 1).id : nil
-            scheduleVisibleGIFPlaybackUpdate(isEnabled: !(tableView.isDragging || tableView.isDecelerating), delay: 0.08)
-            return
+        applyMessageSnapshot(animatingDifferences: false) { [weak self] in
+            guard let self else { return }
+            self.tableView.layoutIfNeeded()
+            if let topMessageID,
+               let newRow = self.viewModel.messages.firstIndex(where: { $0.id == topMessageID }) {
+                let indexPath = IndexPath(row: newRow, section: 0)
+                let targetY = self.tableView.rectForRow(at: indexPath).minY - topAnchorOffset
+                self.tableView.setContentOffset(
+                    CGPoint(x: self.tableView.contentOffset.x, y: max(-self.tableView.adjustedContentInset.top, targetY)),
+                    animated: false
+                )
+            }
+            self.updateEmptyStateVisibility()
+            self.previousMessageCount = self.viewModel.numberOfMessages()
+            self.previousLastMessageID = self.previousMessageCount > 0 ? self.viewModel.message(at: self.previousMessageCount - 1).id : nil
+            self.scheduleVisibleGIFPlaybackUpdate(isEnabled: !(self.tableView.isDragging || self.tableView.isDecelerating), delay: 0.08)
         }
-
-        let indexPaths = (0..<insertedCount).map { IndexPath(row: $0, section: 0) }
-        tableView.performBatchUpdates({
-            tableView.insertRows(at: indexPaths, with: .none)
-        })
-        tableView.layoutIfNeeded()
-        updateEmptyStateVisibility()
-
-        let newContentHeight = tableView.contentSize.height
-        let delta = newContentHeight - previousContentHeight
-        guard delta > 0 else {
-            previousMessageCount = viewModel.numberOfMessages()
-            previousLastMessageID = previousMessageCount > 0 ? viewModel.message(at: previousMessageCount - 1).id : nil
-            scheduleVisibleGIFPlaybackUpdate(isEnabled: !(tableView.isDragging || tableView.isDecelerating), delay: 0.08)
-            return
-        }
-
-        tableView.setContentOffset(
-            CGPoint(x: tableView.contentOffset.x, y: max(-tableView.adjustedContentInset.top, previousOffsetY + delta)),
-            animated: false
-        )
-        previousMessageCount = viewModel.numberOfMessages()
-        previousLastMessageID = previousMessageCount > 0 ? viewModel.message(at: previousMessageCount - 1).id : nil
-        scheduleVisibleGIFPlaybackUpdate(isEnabled: !(tableView.isDragging || tableView.isDecelerating), delay: 0.08)
     }
 
     func scheduleVisibleGIFPlaybackUpdate(isEnabled: Bool, delay: TimeInterval = 0.1) {

@@ -26,6 +26,7 @@ final class ChatViewModel {
     var onStateChanged: ((ScreenState) -> Void)?
     var onMessagesUpdated: (() -> Void)?
     var onMessagesPrepended: ((Int) -> Void)?
+    var onMessageListDelta: ((MessageListDelta) -> Void)?
     var onPairingCodeUpdated: ((String) -> Void)?
     var onPairingStatusUpdated: ((String) -> Void)?
     var onPartnerMoodUpdated: ((MoodStatus?) -> Void)?
@@ -38,6 +39,7 @@ final class ChatViewModel {
     var onMessageMetaUpdated: ((Set<String>) -> Void)?
 
     var messages: [ChatMessage] = []
+    var messageByID: [String: ChatMessage] = [:]
     var state: ScreenState = .idle {
         didSet { notifyOnMain { self.onStateChanged?(self.state) } }
     }
@@ -64,8 +66,11 @@ final class ChatViewModel {
     var moodObserver: FirebaseObservationToken?
     var pairingTimeoutWorkItem: DispatchWorkItem?
     var observerRebindWorkItem: DispatchWorkItem?
+    let messageMetadataProcessingQueue = DispatchQueue(label: "com.soulmate.chat.metadata", qos: .userInitiated)
     var loadedMessageIDs: Set<String> = []
     var oldestLoadedSentAt: TimeInterval?
+    var oldestLoadedMessageID: String?
+    var latestSyncedCursor: ChatSyncCursor?
     var isLoadingHistory = false
     var hasReachedHistoryStart = false
     var activeChatID: String?
@@ -89,6 +94,10 @@ final class ChatViewModel {
     let maxPartnerLocationAge: TimeInterval = 300
     let pairingTimeoutSeconds: TimeInterval = 10
     var widgetRefreshWorkItem: DispatchWorkItem?
+    var bootstrapPersistWorkItem: DispatchWorkItem?
+    var pendingBootstrapPersistCursor: ChatSyncCursor?
+    var lastPersistedBootstrapCursor: ChatSyncCursor?
+    let bootstrapPersistDebounceInterval: TimeInterval = 0.8
     lazy var messageSyncService = MessageSyncService(
         firebase: firebase,
         encryption: encryption,
@@ -159,6 +168,7 @@ final class ChatViewModel {
     }
 
     deinit {
+        bootstrapPersistWorkItem?.cancel()
         stopObservers()
     }
 }

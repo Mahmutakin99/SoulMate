@@ -22,6 +22,11 @@ extension ChatViewController {
         detailsTitleLabel.font = UIFont(name: "AvenirNext-Bold", size: 16) ?? .systemFont(ofSize: 16, weight: .bold)
         detailsTitleLabel.translatesAutoresizingMaskIntoConstraints = false
 
+        detailsScrollView.showsVerticalScrollIndicator = false
+        detailsScrollView.alwaysBounceVertical = true
+        detailsScrollView.keyboardDismissMode = .interactive
+        detailsScrollView.translatesAutoresizingMaskIntoConstraints = false
+
         detailsStack.axis = .vertical
         detailsStack.spacing = 10
         detailsStack.translatesAutoresizingMaskIntoConstraints = false
@@ -69,7 +74,8 @@ extension ChatViewController {
         partnerMoodValueLabel.text = latestPartnerMoodValue
 
         detailsDrawerView.addSubview(detailsTitleLabel)
-        detailsDrawerView.addSubview(detailsStack)
+        detailsDrawerView.addSubview(detailsScrollView)
+        detailsScrollView.addSubview(detailsStack)
         view.addSubview(detailsDimView)
         view.addSubview(detailsDrawerView)
 
@@ -93,10 +99,15 @@ extension ChatViewController {
             detailsTitleLabel.leadingAnchor.constraint(equalTo: detailsDrawerView.leadingAnchor, constant: 14),
             detailsTitleLabel.trailingAnchor.constraint(equalTo: detailsDrawerView.trailingAnchor, constant: -14),
 
-            detailsStack.topAnchor.constraint(equalTo: detailsTitleLabel.bottomAnchor, constant: 12),
-            detailsStack.leadingAnchor.constraint(equalTo: detailsDrawerView.leadingAnchor, constant: 12),
-            detailsStack.trailingAnchor.constraint(equalTo: detailsDrawerView.trailingAnchor, constant: -12),
-            detailsStack.bottomAnchor.constraint(lessThanOrEqualTo: detailsDrawerView.bottomAnchor, constant: -12)
+            detailsScrollView.topAnchor.constraint(equalTo: detailsTitleLabel.bottomAnchor, constant: 12),
+            detailsScrollView.leadingAnchor.constraint(equalTo: detailsDrawerView.leadingAnchor),
+            detailsScrollView.trailingAnchor.constraint(equalTo: detailsDrawerView.trailingAnchor),
+            detailsScrollView.bottomAnchor.constraint(equalTo: detailsDrawerView.bottomAnchor, constant: -8),
+
+            detailsStack.topAnchor.constraint(equalTo: detailsScrollView.contentLayoutGuide.topAnchor),
+            detailsStack.bottomAnchor.constraint(equalTo: detailsScrollView.contentLayoutGuide.bottomAnchor),
+            detailsStack.leadingAnchor.constraint(equalTo: detailsScrollView.frameLayoutGuide.leadingAnchor, constant: 12),
+            detailsStack.trailingAnchor.constraint(equalTo: detailsScrollView.frameLayoutGuide.trailingAnchor, constant: -12)
         ])
     }
 
@@ -433,6 +444,9 @@ extension ChatViewController {
 
     func setDetailsDrawerVisibility(_ isOpen: Bool, animated: Bool) {
         guard isDetailsDrawerOpen != isOpen else { return }
+        if isOpen {
+            view.endEditing(true)
+        }
         isDetailsDrawerOpen = isOpen
 
         if isOpen {
