@@ -663,11 +663,80 @@ extension ChatViewModel {
         }
     }
 
+    func preloadCachedMessagesIfNeeded(chatID: String, currentUserID: String, tentativePartnerUID: String) {
+        guard AppConfiguration.FeatureFlags.localFirstEphemeralMessaging else { return }
+        guard messages.isEmpty else { return }
+
+        // 1. Try snapshot cache first (instant, no DB I/O)
+        if AppConfiguration.FeatureFlags.enableHybridSnapshotLaunch,
+           let snapshotModels = ChatLaunchSnapshotCache.shared.load(ownerUID: currentUserID, chatID: chatID),
+           !snapshotModels.isEmpty {
+            let snapshotMessages = snapshotModels.compactMap {
+                self.chatMessageFromSnapshot(
+                    $0,
+                    currentUserID: currentUserID,
+                    partnerUserID: tentativePartnerUID
+                )
+            }
+            if !snapshotMessages.isEmpty {
+                snapshotMessages.forEach { _ = appendMessageIfNeeded($0, notify: false) }
+                notifyOnMain {
+                    self.onMessagesUpdated?()
+                    self.onMessageListDelta?(
+                        MessageListDelta(kind: .initial, changedMessageIDs: Set(snapshotMessages.map(\.id)))
+                    )
+                    ChatPerfLogger.mark("t0_earlyPreload")
+                    ChatPerfLogger.logDelta(
+                        from: "launch_t0_app_start",
+                        to: "t0_earlyPreload",
+                        context: "early_snapshot_preload"
+                    )
+                }
+                return
+            }
+        }
+
+        // 2. Fallback: load from SQLite on background thread
+        let localStore = self.localMessageStore
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            do {
+                let localMessages = try localStore.fetchRecent(
+                    chatID: chatID,
+                    limit: AppConfiguration.MessageQueue.localPageSize
+                )
+                guard !localMessages.isEmpty else { return }
+                self.notifyOnMain {
+                    guard self.messages.isEmpty else { return }
+                    localMessages.forEach { _ = self.appendMessageIfNeeded($0, notify: false) }
+                    self.onMessagesUpdated?()
+                    self.onMessageListDelta?(
+                        MessageListDelta(kind: .initial, changedMessageIDs: Set(localMessages.map(\.id)))
+                    )
+                    ChatPerfLogger.mark("t0_earlyPreload")
+                    ChatPerfLogger.logDelta(
+                        from: "launch_t0_app_start",
+                        to: "t0_earlyPreload",
+                        context: "early_db_preload"
+                    )
+                }
+            } catch {
+                #if DEBUG
+                print("Early preload failed: \(error.localizedDescription)")
+                #endif
+            }
+        }
+    }
+
     func loadInitialMessagesFromLocal() {
         guard AppConfiguration.FeatureFlags.localFirstEphemeralMessaging else { return }
         guard let currentUserID, let partnerUserID, let chatID = activeChatID else { return }
 
-        if AppConfiguration.FeatureFlags.enableHybridSnapshotLaunch,
+        // Skip snapshot loading if early preload already populated messages
+        let skipSnapshotPhase = !messages.isEmpty
+
+        if !skipSnapshotPhase,
+           AppConfiguration.FeatureFlags.enableHybridSnapshotLaunch,
            let snapshotModels = ChatLaunchSnapshotCache.shared.load(ownerUID: currentUserID, chatID: chatID),
            !snapshotModels.isEmpty {
             let snapshotMessages = snapshotModels.compactMap {

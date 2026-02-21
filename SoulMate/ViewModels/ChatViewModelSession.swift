@@ -85,9 +85,18 @@ extension ChatViewModel {
         }
 
         if partnerUserID != partnerID {
+            // Preload cached messages before network-dependent partner profile fetch
+            if let currentUserID {
+                let chatID = FirebaseManager.chatID(for: currentUserID, and: partnerID)
+                preloadCachedMessagesIfNeeded(chatID: chatID, currentUserID: currentUserID, tentativePartnerUID: partnerID)
+            }
             bindPartner(partnerUID: partnerID)
         } else if state == .unpaired {
             state = .loading
+            if let currentUserID {
+                let chatID = FirebaseManager.chatID(for: currentUserID, and: partnerID)
+                preloadCachedMessagesIfNeeded(chatID: chatID, currentUserID: currentUserID, tentativePartnerUID: partnerID)
+            }
             bindPartner(partnerUID: partnerID)
         }
     }
